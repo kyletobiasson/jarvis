@@ -1165,7 +1165,7 @@ const SPRE=['Drawing','Writing','Reading','Music','Photography','Cooking','A lan
 function onboard(){
   if(S.onboarded) return;
   const dlg=$('#sheet');
-  const st={ step:0, name:S.user==='there'?'':S.user, wake:'07:15', home:'17:15',
+  const st={ step:0, name:S.user==='there'?'':S.user, asst:S.assistant, wake:'07:15', home:'17:15',
              routines:new Set(), rc:'', skills:new Set(), sc:'',
              proj:{name:'', total:'', unit:'', deadline:''} };
   function chipRow(list, set){
@@ -1178,7 +1178,7 @@ function onboard(){
     return w;
   }
   function capture(){
-    if(st.step===0){ st.name=$('#w_name').value; st.wake=$('#w_wake').value; st.home=$('#w_home').value; }
+    if(st.step===0){ st.name=$('#w_name').value; st.asst=$('#w_asst').value; st.wake=$('#w_wake').value; st.home=$('#w_home').value; }
     if(st.step===1){ st.rc=$('#w_rc').value; }
     if(st.step===2){ st.sc=$('#w_sc').value; }
     if(st.step===3){ st.proj={name:$('#w_pn').value.trim(), total:$('#w_pt').value, unit:$('#w_pu').value.trim(), deadline:$('#w_pd').value}; }
@@ -1188,9 +1188,10 @@ function onboard(){
     const box=el('div',{class:'sheet'});
     box.append(el('div',{class:'wizdots'}, [0,1,2,3].map(i=>el('i',{class:i<=st.step?'on':''}))));
     if(st.step===0){
-      box.append(el('h2',{}, `Hi — I’m ${S.assistant}.`));
-      box.append(el('p',{class:'muted', style:'margin:4px 0 8px'}, 'I plan your evenings so you don’t have to. Three things to start:'));
+      box.append(el('h2',{}, 'Let’s set up.'));
+      box.append(el('p',{class:'muted', style:'margin:4px 0 8px'}, 'I hold your whole to-do list and hand you one clear plan each night. First, the basics:'));
       box.append(field('Your name', `<input id="w_name" value="${esc(st.name)}" placeholder="Kyle">`));
+      box.append(field('What should I go by?', `<input id="w_asst" value="${esc(st.asst)}" placeholder="Jarvis">`));
       box.append(field('Wake-up time you’re aiming for', `<input id="w_wake" type="time" value="${st.wake}">`));
       box.append(field('When you get home from work', `<input id="w_home" type="time" value="${st.home}">`));
     } else if(st.step===1){
@@ -1224,6 +1225,7 @@ function onboard(){
   }
   function finish(){
     S.user=(st.name||'').trim()||'there';
+    S.assistant=(st.asst||'').trim()||'Jarvis';
     if(st.wake) S.wakeOverride=st.wake;
     if(st.home) S.workEnd=fmt24(parseHM(st.home)-S.driveMin);
     [...st.routines, ...st.rc.split(',').map(x=>x.trim()).filter(Boolean)].forEach(name=>{
