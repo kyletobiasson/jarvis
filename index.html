@@ -32,10 +32,11 @@
   body{
     background:var(--bg); color:var(--text);
     font:16px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
-    padding-bottom:calc(74px + var(--safe-b));
+    padding-bottom:calc(58px + var(--safe-b));
     -webkit-font-smoothing:antialiased;
   }
-  .wrap{max-width:560px; margin:0 auto; padding:16px}
+  .wrap{max-width:560px; margin:0 auto; padding:16px 16px 4px}
+  .foot{text-align:center; color:var(--faint); font-size:.7rem; letter-spacing:.08em; padding:18px 0 6px; opacity:.6}
   h1,h2,h3{margin:0; font-weight:650; line-height:1.25}
   h2{font-size:1.05rem}
   h3{font-size:1rem}
@@ -58,7 +59,7 @@
   .ring::after{content:""; position:absolute; inset:5px; border-radius:50%; background:var(--surface)}
   .ring span{position:relative; font-size:.8rem; font-weight:700}
 
-  .sec{margin-top:18px}
+  .sec{margin-top:16px}
   .sec>h2{display:flex; align-items:baseline; justify-content:space-between; margin-bottom:6px; font-size:1.05rem}
   .sec>h2 .hint{font-size:.78rem; font-weight:500; color:var(--faint)}
 
@@ -99,9 +100,9 @@
 
   nav{position:fixed; left:0; right:0; bottom:0; background:var(--surface); border-top:1px solid var(--line);
     display:flex; padding-bottom:var(--safe-b); z-index:50}
-  nav button{flex:1; background:none; border:0; padding:9px 2px 11px; display:flex; flex-direction:column; align-items:center; gap:3px; color:var(--faint); font-size:.64rem}
+  nav button{flex:1; background:none; border:0; padding:7px 1px 8px; display:flex; flex-direction:column; align-items:center; gap:2px; color:var(--faint); font-size:.6rem}
   nav button.on{color:var(--accent)}
-  nav svg{width:21px; height:21px}
+  nav svg{width:20px; height:20px}
 
   .btn{display:inline-flex; align-items:center; justify-content:center; gap:6px; padding:10px 14px; border-radius:11px;
     border:1px solid var(--line); background:var(--surface-2); font-weight:600; font-size:.9rem}
@@ -120,6 +121,12 @@
   .seg{display:flex; gap:6px; flex-wrap:wrap}
   .seg-b{padding:7px 12px; border-radius:999px; border:1px solid var(--line); background:var(--surface-2); font-size:.82rem; font-weight:600}
   .seg-b.on{background:var(--accent); border-color:var(--accent); color:var(--accent-ink)}
+  .chips{display:flex; gap:7px; flex-wrap:wrap}
+  .chip{padding:9px 13px; border-radius:999px; border:1px solid var(--line); background:var(--surface-2); font-size:.86rem; font-weight:600}
+  .chip.on{background:var(--accent); border-color:var(--accent); color:var(--accent-ink)}
+  .wizdots{display:flex; gap:5px; margin-bottom:14px}
+  .wizdots>i{height:4px; flex:1; border-radius:2px; background:var(--surface-2)}
+  .wizdots>i.on{background:var(--accent)}
   .daychips{display:flex; gap:5px}
   .daychips button{width:34px;height:34px;border-radius:50%;border:1px solid var(--line);background:var(--surface-2);font-size:.78rem;font-weight:600}
   .daychips button.on{background:var(--accent);border-color:var(--accent);color:var(--accent-ink)}
@@ -159,29 +166,16 @@ function prW(p){ return p==='must'?3:p==='low'?1:2; }
 
 /* ---------- storage ---------- */
 const KEY='pa.v1';
-// Generic first-run examples only. Real data is entered on-device and stored in
-// localStorage — it never lives in this file or the repo.
-function seed(){
-  const tomorrow=todayISO(new Date(Date.now()+86400000));
-  return {
-    projects:[],
-    routines:[
-      {id:'r_move',  name:'Exercise', hint:'keep it easy', cadence:{type:'daily'}, slot:'evening', priority:'must', skipRest:false, lock:'', kind:'check'},
-      {id:'r_learn', name:'Language practice', hint:'', cadence:{type:'daily'}, slot:'evening', priority:'must', skipRest:false, lock:'', kind:'check'},
-      {id:'r_alt',   name:'Stretch', hint:'', cadence:{type:'everyN', n:2, anchor:tomorrow}, slot:'evening', priority:'normal', skipRest:false, lock:'', kind:'check'},
-      {id:'r_water', name:'Water', hint:'', cadence:{type:'daily'}, slot:'evening', priority:'normal', skipRest:false, lock:'', kind:'counter', goal:2, oz:40},
-      {id:'r_skill', name:'Skill practice', hint:'reading, drawing, writing — pick one', cadence:{type:'daily'}, slot:'winddown', priority:'low', skipRest:false, lock:'', kind:'check'},
-    ],
-  };
-}
-const DEFAULTS=Object.assign({
+// Ships blank. Everything is created on-device via the setup flow and stored in
+// localStorage — nothing personal lives in this file or the repo.
+const DEFAULTS={
   user:'there', assistant:'Jarvis',
   workStart:'08:00', driveMin:15, morningMin:30,
   wakeOverride:'', sleepGoalH:8, workEnd:'17:00',
   week:{0:'project',1:'project',2:'rest',3:'project',4:'rest',5:'off',6:'project'},
-  events:[], tasks:[], checks:{}, counters:{},
+  projects:[], routines:[], skills:[], events:[], tasks:[], checks:{}, counters:{},
   onboarded:false,
-}, seed());
+};
 
 let S = load();
 function load(){
@@ -203,6 +197,7 @@ function migrate(s){
     id:uid(), name:'', hint:'', cadence:{type:'daily'}, slot:'evening', priority:'normal', skipRest:false, lock:'', kind:'check', goal:1, oz:0
   }, r));
   s.tasks = (s.tasks||[]).map(t=>Object.assign({id:uid(), text:'', due:'', priority:'normal', done:false}, t));
+  s.skills = (s.skills||[]).map(k=>Object.assign({id:uid(), name:'', createdAt:todayISO(), sessions:[]}, k));
 }
 let storageBroken=false;
 function save(){
@@ -258,6 +253,43 @@ function routineDue(r, iso, mode){
 function routineComplete(r, iso){
   if(r.kind==='counter') return counterVal(r.id,iso) >= (r.goal||1);
   return isDone(iso,r.id);
+}
+
+/* ---------- skills ---------- */
+const LEVELS=[0,1,3,7,14,25,45,75,120,180,260,360];   // cumulative hours per level
+function skillMinutes(k){ return (k.sessions||[]).reduce((t,s)=>t+(+s.min||0),0); }
+function skillLevel(k){ const h=skillMinutes(k)/60; let lv=0; for(let i=0;i<LEVELS.length;i++){ if(h>=LEVELS[i]) lv=i; } return lv; }
+function skillNext(k){ const h=skillMinutes(k)/60, lv=skillLevel(k); const nx=LEVELS[lv+1]; return nx==null?null:{lv:lv+1, need:nx, have:h, pct:Math.min(100, Math.round((h-LEVELS[lv])/(nx-LEVELS[lv])*100))}; }
+function skillStreak(k){
+  const days=new Set((k.sessions||[]).map(s=>s.date));
+  let n=0; for(let i=0;i<400;i++){ const iso=addDays(todayISO(),-i);
+    if(days.has(iso)) n++; else if(i>0) break; else continue; }
+  return n;
+}
+function skillLastPracticed(k){ const ds=(k.sessions||[]).map(s=>s.date).sort(); return ds[ds.length-1]||''; }
+function logSkill(k, min, iso){
+  k.sessions=k.sessions||[]; k.sessions.push({date:iso||todayISO(), min:Math.max(1,Math.round(min||10))});
+  save(); render();
+}
+function logSkillSheet(iso, routineId){
+  if(!S.skills.length){
+    sheet('Add a skill',[ field('What skill?', `<input id="sk_n" placeholder="Drawing">`) ], ()=>{
+      const n=$('#sk_n').value.trim(); if(!n) return false;
+      const k={id:uid(), name:n, createdAt:todayISO(), sessions:[]}; S.skills.push(k);
+      save(); logSkillSheet(iso, routineId); return true;
+    });
+    return;
+  }
+  let pick=S.skills[0].id, mins=10;
+  sheet('Log skill practice',[
+    labeled('Which skill', segmented(S.skills.map(k=>[k.id,k.name]), pick, v=>pick=v)),
+    field('Minutes', numInput(10, v=>mins=v)),
+  ], ()=>{
+    const k=S.skills.find(x=>x.id===pick); if(!k) return false;
+    logSkill(k, mins, iso);
+    if(routineId) dayChecks(iso)[routineId]=true;
+    save(); render(); return true;
+  });
 }
 function routineStreak(r){
   let n=0;
@@ -383,6 +415,7 @@ const TABS=[
   ['today','Today','<path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2h11"/>'],
   ['projects','Projects','<path d="M3 7h18M3 12h18M3 17h18"/>'],
   ['routines','Routines','<path d="M17 2l4 4-4 4"/><path d="M3 11V9a4 4 0 014-4h14"/><path d="M7 22l-4-4 4-4"/><path d="M21 13v2a4 4 0 01-4 4H3"/>'],
+  ['skills','Skills','<path d="M3 17l6-6 4 4 8-8"/><path d="M15 7h6v6"/>'],
   ['plan','Plan','<rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/>'],
   ['settings','Settings','<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 11-2.83 2.83l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 11-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 11-2.83-2.83l.06-.06A1.65 1.65 0 004.6 15a1.65 1.65 0 00-1.51-1H3a2 2 0 110-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 112.83-2.83l.06.06A1.65 1.65 0 009 4.6a1.65 1.65 0 001-1.51V3a2 2 0 114 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 112.83 2.83l-.06.06A1.65 1.65 0 0019.4 9c.14.31.22.65.22 1z"/>'],
 ];
@@ -400,7 +433,8 @@ function go(v){ view=v; buildNav(); window.scrollTo(0,0); render(); }
 function render(){
   const y=window.scrollY;
   const app=$('#app'); app.innerHTML='';
-  ({today:viewToday,projects:viewProjects,routines:viewRoutines,plan:viewPlan,settings:viewSettings}[view])(app);
+  ({today:viewToday,projects:viewProjects,routines:viewRoutines,skills:viewSkills,plan:viewPlan,settings:viewSettings}[view])(app);
+  app.append(el('div',{class:'foot'}, S.assistant.toUpperCase()));
   window.scrollTo(0,y);
 }
 
@@ -503,7 +537,12 @@ function routineRow(iso, r){
   const st=routineStreak(r);
   if(st>1) row.append(el('div',{class:'streak'}, `\u{1f525} ${st}`));
   else if(locked) row.append(el('div',{class:'rt'}, `after ${fmtHM(parseHM(r.lock))}`));
-  row.addEventListener('click',()=>{ if(locked && !done) return; toggle(iso, r.id); });
+  else if(r.kind==='skill' && !done) row.append(el('div',{class:'rt'}, 'log →'));
+  row.addEventListener('click',()=>{
+    if(locked && !done) return;
+    if(r.kind==='skill' && !done){ return logSkillSheet(iso, r.id); }
+    toggle(iso, r.id);
+  });
   return row;
 }
 function counterRow(iso, r){
@@ -710,7 +749,8 @@ function editRoutine(r){
   const kindBox=el('div',{});
   function drawKind(){
     kindBox.innerHTML='';
-    kindBox.append(labeled('Type', segmented([['check','Checkbox'],['counter','Counter']], kind, v=>{ kind=v; drawKind(); })));
+    kindBox.append(labeled('Type', segmented([['check','Checkbox'],['counter','Counter'],['skill','Skill log']], kind, v=>{ kind=v; drawKind(); })));
+    if(kind==='skill') kindBox.append(el('div',{class:'faint tiny'},'Tapping it asks which skill you practiced and for how long, and logs it on the Skills tab.'));
     if(kind==='counter') kindBox.append(el('div',{class:'grid2'},[
       field('Daily goal', numInput(d.goal||1, v=>d.goal=v)),
       field('oz each (optional)', numInput(d.oz||0, v=>d.oz=v)),
@@ -738,6 +778,48 @@ function editRoutine(r){
     if(isNew) S.routines.push(r);
     save(); render(); return true;
   }, isNew?null:()=>{ if(confirm('Delete this routine?')){ S.routines=S.routines.filter(x=>x!==r); save(); closeSheet(); render(); } });
+}
+
+/* ===== SKILLS ===== */
+function viewSkills(app){
+  app.append(el('header',{class:'hero'},[ el('div',{class:'greet'},'Skills'), el('div',{class:'sub'},'Things you’re developing. Practice logs here and levels you up.') ]));
+  app.append(el('button',{class:'btn primary block', style:'margin:6px 0 4px', onclick:()=>editSkill()}, '+ New skill'));
+  if(!S.skills.length) app.append(el('div',{class:'empty'},'No skills yet. Reading, drawing, an instrument — whatever you want to get better at.'));
+  S.skills.slice().sort((a,b)=>skillMinutes(b)-skillMinutes(a)).forEach(k=>{
+    const c=el('div',{class:'card'});
+    const lv=skillLevel(k), nx=skillNext(k), mins=skillMinutes(k), stk=skillStreak(k);
+    c.append(el('div',{class:'inline', style:'gap:8px'},[
+      el('h3',{style:'flex:1'}, k.name),
+      el('span',{class:'badge ok'}, `Lv ${lv}`),
+    ]));
+    const nS=(k.sessions||[]).length;
+    c.append(el('div',{class:'faint tiny', style:'margin-top:6px'},
+      `${fmtDur(mins)} total · ${nS} ${nS===1?'session':'sessions'}${stk>1?` · \u{1f525} ${stk}`:''}${skillLastPracticed(k)?` · last ${dstr(skillLastPracticed(k))}`:''}`));
+    if(nx){
+      c.append(el('div',{class:'bar'},[ el('i',{style:`width:${nx.pct}%`}) ]));
+      c.append(el('div',{class:'faint tiny', style:'margin-top:4px'}, `${(nx.need-nx.have).toFixed(1)} hrs to Level ${nx.lv}`));
+    }
+    c.append(el('div',{class:'row-actions'},[
+      el('button',{class:'btn sm primary', onclick:()=>{ let m=10; sheet('Log '+k.name,[ field('Minutes practiced', numInput(10,v=>m=v)) ], ()=>{ logSkill(k,m); return true; }); }},'Log practice'),
+      el('button',{class:'btn sm', onclick:()=>editSkill(k)},'Edit'),
+    ]));
+    app.append(c);
+  });
+}
+function editSkill(k){
+  const isNew=!k; k=k||{id:uid(), name:'', createdAt:todayISO(), sessions:[]};
+  sheet(isNew?'New skill':'Edit skill',[
+    field('Name', `<input id="k_n" value="${esc(k.name)}" placeholder="Drawing">`),
+    isNew?null:field('Adjust logged hours (optional)', `<input id="k_h" type="number" min="0" step="0.5" value="${(skillMinutes(k)/60).toFixed(1)}">`),
+  ].filter(Boolean), ()=>{
+    k.name=$('#k_n').value.trim(); if(!k.name) return false;
+    if(!isNew){
+      const h=parseFloat($('#k_h').value);
+      if(!isNaN(h) && Math.abs(h*60 - skillMinutes(k))>1){ k.sessions=[{date:todayISO(), min:Math.round(h*60)}]; }
+    }
+    if(isNew) S.skills.push(k);
+    save(); render(); return true;
+  }, isNew?null:()=>{ if(confirm('Delete this skill and its history?')){ S.skills=S.skills.filter(x=>x!==k); save(); closeSheet(); render(); } });
 }
 
 /* ===== PLAN ===== */
@@ -952,20 +1034,90 @@ function importData(){
   inp.click();
 }
 
-/* ---------- onboarding ---------- */
+/* ---------- onboarding wizard ---------- */
+const RPRE=[['Exercise','evening','must'],['Language app','evening','must'],['Meditate','evening','normal'],['Read','winddown','low'],['Water','evening','normal'],['Vitamins','morning','normal'],['Tidy up','evening','low'],['Journal','winddown','low']];
+const SPRE=['Drawing','Writing','Reading','Music','Photography','Cooking','A language','Coding'];
 function onboard(){
   if(S.onboarded) return;
-  sheet('Set up '+S.assistant, [
-    field('', el('p',{class:'muted', style:'margin:4px 0'}, 'Two numbers and you’re running. Everything else has sane defaults you can tweak.')),
-    field('What time do you want to wake up?', `<input id="o_wake" type="time" value="07:15">`),
-    field('When do you get home from work?', `<input id="o_home" type="time" value="17:15">`),
-    field('Your name', `<input id="o_name" value="${esc(S.user)}">`),
-  ], ()=>{
-    S.wakeOverride=$('#o_wake').value;
-    const h=$('#o_home').value; if(h) S.workEnd=fmt24(parseHM(h)-S.driveMin);
-    S.user=$('#o_name').value.trim()||'there';
-    S.onboarded=true; save(); render(); return true;
-  });
+  const dlg=$('#sheet');
+  const st={ step:0, name:S.user==='there'?'':S.user, wake:'07:15', home:'17:15',
+             routines:new Set(), rc:'', skills:new Set(), sc:'',
+             proj:{name:'', total:'', unit:'', deadline:''} };
+  function chipRow(list, set){
+    const w=el('div',{class:'chips'});
+    list.forEach(item=>{
+      const label=Array.isArray(item)?item[0]:item;
+      const b=el('button',{class:'chip'+(set.has(label)?' on':''), onclick:()=>{ set.has(label)?set.delete(label):set.add(label); b.classList.toggle('on'); }}, label);
+      w.append(b);
+    });
+    return w;
+  }
+  function capture(){
+    if(st.step===0){ st.name=$('#w_name').value; st.wake=$('#w_wake').value; st.home=$('#w_home').value; }
+    if(st.step===1){ st.rc=$('#w_rc').value; }
+    if(st.step===2){ st.sc=$('#w_sc').value; }
+    if(st.step===3){ st.proj={name:$('#w_pn').value.trim(), total:$('#w_pt').value, unit:$('#w_pu').value.trim(), deadline:$('#w_pd').value}; }
+  }
+  function draw(){
+    dlg.innerHTML=''; dlg.style.display='';
+    const box=el('div',{class:'sheet'});
+    box.append(el('div',{class:'wizdots'}, [0,1,2,3].map(i=>el('i',{class:i<=st.step?'on':''}))));
+    if(st.step===0){
+      box.append(el('h2',{}, `Hi — I’m ${S.assistant}.`));
+      box.append(el('p',{class:'muted', style:'margin:4px 0 8px'}, 'I plan your evenings so you don’t have to. Three things to start:'));
+      box.append(field('Your name', `<input id="w_name" value="${esc(st.name)}" placeholder="Kyle">`));
+      box.append(field('Wake-up time you’re aiming for', `<input id="w_wake" type="time" value="${st.wake}">`));
+      box.append(field('When you get home from work', `<input id="w_home" type="time" value="${st.home}">`));
+    } else if(st.step===1){
+      box.append(el('h2',{}, 'What do you do most days?'));
+      box.append(el('p',{class:'muted', style:'margin:4px 0 10px'}, 'Tap what fits. Cadence and timing are adjustable later in Routines.'));
+      box.append(chipRow(RPRE, st.routines));
+      box.append(field('Add your own (comma-separated)', `<input id="w_rc" value="${esc(st.rc)}" placeholder="Duolingo, stretch">`));
+    } else if(st.step===2){
+      box.append(el('h2',{}, 'Anything you want to get better at?'));
+      box.append(el('p',{class:'muted', style:'margin:4px 0 10px'}, 'These become Skills you level up. If you pick any, a nightly “practice a skill” routine is added.'));
+      box.append(chipRow(SPRE, st.skills));
+      box.append(field('Add your own', `<input id="w_sc" value="${esc(st.sc)}" placeholder="Screenwriting">`));
+    } else {
+      box.append(el('h2',{}, 'A project with a finish line?'));
+      box.append(el('p',{class:'muted', style:'margin:4px 0 10px'}, 'Something you’re working toward. Skip if none — add projects anytime.'));
+      box.append(field('Name', `<input id="w_pn" value="${esc(st.proj.name)}" placeholder="Edit the podcast season">`));
+      box.append(el('div',{class:'grid2'},[
+        field('How many parts?', `<input id="w_pt" type="number" min="1" value="${st.proj.total||''}">`),
+        field('Called…', `<input id="w_pu" value="${esc(st.proj.unit)}" placeholder="episodes">`),
+      ]));
+      box.append(field('Deadline (optional)', `<input id="w_pd" type="date" value="${st.proj.deadline||''}">`));
+    }
+    const acts=el('div',{class:'row-actions', style:'margin-top:16px'});
+    if(st.step>0) acts.append(el('button',{class:'btn ghost', onclick:()=>{ capture(); st.step--; draw(); }},'Back'));
+    if(st.step>=1) acts.append(el('button',{class:'btn ghost', onclick:()=>{ capture(); if(st.step===3){ st.proj.name=''; finish(); } else { st.step++; draw(); } }},'Skip'));
+    acts.append(el('button',{class:'btn primary', style:'margin-left:auto', onclick:()=>{ capture(); if(st.step<3){ st.step++; draw(); } else finish(); }}, st.step===3?'Finish':'Next'));
+    box.append(acts);
+    dlg.append(box);
+    if(typeof dlg.showModal==='function'){ if(!dlg.open) dlg.showModal(); }
+    else { dlg.setAttribute('open',''); dlg.style.cssText='display:block;position:fixed;inset:auto 0 0 0;z-index:100'; }
+  }
+  function finish(){
+    S.user=(st.name||'').trim()||'there';
+    if(st.wake) S.wakeOverride=st.wake;
+    if(st.home) S.workEnd=fmt24(parseHM(st.home)-S.driveMin);
+    [...st.routines, ...st.rc.split(',').map(x=>x.trim()).filter(Boolean)].forEach(name=>{
+      const pre=RPRE.find(p=>p[0]===name);
+      const isWater=/water/i.test(name);
+      S.routines.push({id:uid(), name, hint:'', cadence:{type:'daily'}, slot:pre?pre[1]:'evening', priority:pre?pre[2]:'normal',
+        skipRest:false, lock:'', kind:isWater?'counter':'check', goal:isWater?2:1, oz:0});
+    });
+    const slist=[...st.skills, ...st.sc.split(',').map(x=>x.trim()).filter(Boolean)];
+    slist.forEach(name=> S.skills.push({id:uid(), name, createdAt:todayISO(), sessions:[]}));
+    if(slist.length && !S.routines.some(r=>r.kind==='skill'))
+      S.routines.push({id:uid(), name:'Practice a skill', hint:'10 minutes — pick one', cadence:{type:'daily'}, slot:'winddown', priority:'low', skipRest:false, lock:'', kind:'skill', goal:1, oz:0});
+    if(st.proj && st.proj.name){
+      S.projects.push({id:uid(), name:st.proj.name, deadline:st.proj.deadline||'', unitLabel:st.proj.unit||'part',
+        total:Math.max(1,+st.proj.total||1), done:0, perSession:1, minPerSession:45, priority:'normal', notes:'', subs:[], pinned:false, archived:false, lastWorked:''});
+    }
+    S.onboarded=true; save(); closeSheet(); render();
+  }
+  draw();
 }
 function fmt24(m){ m=((m%1440)+1440)%1440; return String(Math.floor(m/60)).padStart(2,'0')+':'+String(m%60).padStart(2,'0'); }
 
