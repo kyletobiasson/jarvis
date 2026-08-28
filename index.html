@@ -1,0 +1,987 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Jarvis</title>
+<meta name="theme-color" content="#111318">
+<link rel="manifest" href="manifest.webmanifest">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Jarvis">
+<link rel="apple-touch-icon" href="icon-180.png">
+<link rel="icon" href="icon.svg" type="image/svg+xml">
+<style>
+  :root{
+    --bg:#0f1115; --surface:#171a21; --surface-2:#1e222b; --line:#2a2f3a;
+    --text:#e8eaf0; --muted:#9aa2b1; --faint:#6b7280;
+    --accent:#7aa2ff; --accent-ink:#0b1220;
+    --good:#43c59e; --warn:#e0b453; --bad:#e0685f;
+    --radius:16px; --tap:48px;
+    --safe-b: env(safe-area-inset-bottom, 0px);
+  }
+  @media (prefers-color-scheme: light){
+    :root{
+      --bg:#f4f5f8; --surface:#ffffff; --surface-2:#eef0f4; --line:#e0e3ea;
+      --text:#1c1f26; --muted:#5b6472; --faint:#8a93a2;
+      --accent:#3860e0; --accent-ink:#ffffff;
+    }
+  }
+  *{box-sizing:border-box; -webkit-tap-highlight-color:transparent}
+  html,body{margin:0; padding:0}
+  body{
+    background:var(--bg); color:var(--text);
+    font:16px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+    padding-bottom:calc(74px + var(--safe-b));
+    -webkit-font-smoothing:antialiased;
+  }
+  .wrap{max-width:560px; margin:0 auto; padding:16px}
+  h1,h2,h3{margin:0; font-weight:650; line-height:1.25}
+  h2{font-size:1.05rem}
+  h3{font-size:1rem}
+  .muted{color:var(--muted)} .faint{color:var(--faint)}
+  button{font:inherit; color:inherit; cursor:pointer}
+  .card{background:var(--surface); border:1px solid var(--line); border-radius:var(--radius); padding:14px; margin:12px 0}
+
+  header.hero{padding:20px 0 4px}
+  .hero .greet{font-size:1.5rem; font-weight:680}
+  .hero .sub{color:var(--muted); margin-top:2px; font-size:.95rem}
+  .clockline{display:flex; gap:8px; flex-wrap:wrap; margin-top:12px}
+  .pill{background:var(--surface-2); border:1px solid var(--line); border-radius:999px; padding:5px 11px; font-size:.82rem; color:var(--muted); white-space:nowrap}
+  .pill b{color:var(--text); font-weight:600}
+  .pill.alert{border-color:var(--warn); color:var(--warn)} .pill.alert b{color:var(--warn)}
+
+  .prog{display:flex; align-items:center; gap:12px; margin:14px 0 2px}
+  .ring{--p:0; width:52px; height:52px; border-radius:50%; flex:0 0 auto;
+    background:conic-gradient(var(--good) calc(var(--p)*1%), var(--surface-2) 0);
+    display:grid; place-items:center; position:relative}
+  .ring::after{content:""; position:absolute; inset:5px; border-radius:50%; background:var(--surface)}
+  .ring span{position:relative; font-size:.8rem; font-weight:700}
+
+  .sec{margin-top:18px}
+  .sec>h2{display:flex; align-items:baseline; justify-content:space-between; margin-bottom:6px; font-size:1.05rem}
+  .sec>h2 .hint{font-size:.78rem; font-weight:500; color:var(--faint)}
+
+  .row{display:flex; align-items:center; gap:12px; padding:13px 12px; background:var(--surface);
+    border:1px solid var(--line); border-radius:12px; margin:8px 0; min-height:var(--tap)}
+  .row.tap{cursor:pointer; user-select:none}
+  .row.done{opacity:.55}
+  .row.done .tx .t{text-decoration:line-through}
+  .box{width:24px; height:24px; border-radius:7px; border:2px solid var(--faint); flex:0 0 auto; display:grid; place-items:center; transition:.12s}
+  .row.done .box, .sub.done .box{background:var(--good); border-color:var(--good)}
+  .box svg{width:14px; height:14px; opacity:0; color:#04140f}
+  .row.done .box svg, .sub.done .box svg{opacity:1}
+  .row .tx{flex:1; min-width:0}
+  .row .tx .t{font-weight:550}
+  .row .tx .d{font-size:.8rem; color:var(--muted)}
+  .row .rt{font-size:.75rem; color:var(--faint); white-space:nowrap}
+  .row.locked{opacity:.5}
+  .row.note{display:block; color:var(--muted); font-size:.92rem; background:var(--surface-2); border-style:dashed}
+  .streak{font-size:.72rem; color:var(--warn); font-weight:600; white-space:nowrap}
+  .dot{width:7px;height:7px;border-radius:50%;flex:0 0 auto}
+  .dot.must{background:var(--bad)} .dot.normal{background:var(--accent)} .dot.low{background:var(--faint)}
+
+  .focuscard{border-color:var(--accent); box-shadow:0 0 0 1px var(--accent) inset}
+  .focuscard .t{font-size:1.05rem}
+  .badge{font-size:.72rem; font-weight:650; padding:2px 8px; border-radius:999px; background:var(--surface-2); border:1px solid var(--line); white-space:nowrap}
+  .badge.soon{color:var(--warn); border-color:var(--warn)}
+  .badge.over{color:var(--bad); border-color:var(--bad)}
+  .badge.ok{color:var(--good); border-color:var(--good)}
+  .deadline{font-size:.8rem; font-weight:600}
+  .deadline.soon{color:var(--warn)} .deadline.over{color:var(--bad)}
+  .sub-list{margin-top:8px; border-top:1px solid var(--line); padding-top:6px}
+  .sub{display:flex; align-items:center; gap:10px; padding:8px 2px; font-size:.92rem; cursor:pointer}
+  .sub .box{width:20px;height:20px;border-radius:6px}
+  .sub.done .s{text-decoration:line-through; opacity:.6}
+  .stepper{display:flex; align-items:center; gap:10px; margin-top:8px}
+  .stepper button{width:38px; height:38px; border-radius:9px; border:1px solid var(--line); background:var(--surface-2); font-size:1.2rem}
+  .stepper .val{font-weight:700; font-size:1rem; min-width:74px; text-align:center}
+
+  nav{position:fixed; left:0; right:0; bottom:0; background:var(--surface); border-top:1px solid var(--line);
+    display:flex; padding-bottom:var(--safe-b); z-index:50}
+  nav button{flex:1; background:none; border:0; padding:9px 2px 11px; display:flex; flex-direction:column; align-items:center; gap:3px; color:var(--faint); font-size:.64rem}
+  nav button.on{color:var(--accent)}
+  nav svg{width:21px; height:21px}
+
+  .btn{display:inline-flex; align-items:center; justify-content:center; gap:6px; padding:10px 14px; border-radius:11px;
+    border:1px solid var(--line); background:var(--surface-2); font-weight:600; font-size:.9rem}
+  .btn.primary{background:var(--accent); border-color:var(--accent); color:var(--accent-ink)}
+  .btn.ghost{background:none}
+  .btn.sm{padding:7px 10px; font-size:.82rem}
+  .btn.block{display:flex; width:100%}
+  .row-actions{display:flex; gap:8px; flex-wrap:wrap; margin-top:10px}
+  label.field{display:block; margin:12px 0}
+  label.field .lab{font-size:.82rem; color:var(--muted); margin-bottom:5px; display:block}
+  input,select,textarea{width:100%; font:inherit; color:var(--text); background:var(--surface-2);
+    border:1px solid var(--line); border-radius:10px; padding:10px 12px}
+  textarea{min-height:60px; resize:vertical}
+  .grid2{display:grid; grid-template-columns:1fr 1fr; gap:10px}
+  .inline{display:flex; gap:8px; align-items:center}
+  .seg{display:flex; gap:6px; flex-wrap:wrap}
+  .seg-b{padding:7px 12px; border-radius:999px; border:1px solid var(--line); background:var(--surface-2); font-size:.82rem; font-weight:600}
+  .seg-b.on{background:var(--accent); border-color:var(--accent); color:var(--accent-ink)}
+  .daychips{display:flex; gap:5px}
+  .daychips button{width:34px;height:34px;border-radius:50%;border:1px solid var(--line);background:var(--surface-2);font-size:.78rem;font-weight:600}
+  .daychips button.on{background:var(--accent);border-color:var(--accent);color:var(--accent-ink)}
+  dialog{border:0; border-radius:18px 18px 0 0; padding:0; width:100%; max-width:560px; margin:auto auto 0; background:var(--surface); color:var(--text)}
+  dialog::backdrop{background:rgba(0,0,0,.5)}
+  .sheet{padding:18px 16px calc(20px + var(--safe-b)); max-height:88vh; overflow-y:auto}
+  .sheet h2{margin-bottom:4px}
+  .weekrow{display:flex; align-items:center; justify-content:space-between; gap:10px; padding:9px 0; border-bottom:1px solid var(--line)}
+  .weekrow:last-child{border-bottom:0}
+  .weekrow select{width:auto; flex:1; max-width:180px}
+  .del{color:var(--bad); background:none; border:0; font-size:.85rem; font-weight:600}
+  .empty{text-align:center; color:var(--muted); padding:26px 10px}
+  .tiny{font-size:.75rem}
+  .divider{height:1px; background:var(--line); margin:16px 0}
+  .bar{height:6px; border-radius:999px; background:var(--surface-2); overflow:hidden; margin-top:8px}
+  .bar>i{display:block; height:100%; background:var(--accent)}
+  .planday{display:flex; gap:10px; padding:9px 0; border-bottom:1px solid var(--line); font-size:.9rem}
+  .planday:last-child{border-bottom:0}
+  .planday .dow{width:64px; flex:0 0 auto; color:var(--muted); font-weight:600}
+  .planday.rest .what{color:var(--faint)}
+</style>
+</head>
+<body>
+<div class="wrap" id="app"></div>
+<nav id="nav"></nav>
+<dialog id="sheet"></dialog>
+
+<script>
+"use strict";
+const $ = (s,r=document)=>r.querySelector(s);
+const el = (t,props={},kids=[])=>{const e=document.createElement(t);for(const k in props){if(k==='class')e.className=props[k];else if(k==='html')e.innerHTML=props[k];else if(k.startsWith('on'))e.addEventListener(k.slice(2),props[k]);else if(props[k]!=null)e.setAttribute(k,props[k]);}for(const c of [].concat(kids))if(c!=null)e.append(c.nodeType?c:document.createTextNode(c));return e;};
+const CHECK = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.5"><path d="M20 6L9 17l-5-5"/></svg>';
+const WD=['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
+const WD1=['S','M','T','W','T','F','S'];
+const PRIOS=[['must','Must'],['normal','Normal'],['low','Low']];
+function prW(p){ return p==='must'?3:p==='low'?1:2; }
+
+/* ---------- storage ---------- */
+const KEY='pa.v1';
+function seed(){
+  const tomorrow=todayISO(new Date(Date.now()+86400000));
+  return {
+    projects:[
+      {id:'edmontask', name:'Edmontask Live Shows', deadline:'', unitLabel:'episode', total:9, done:1, perSession:1, minPerSession:180, priority:'normal',
+       notes:'Edit each recorded live episode and get it off the computer to close the season. ~3 hrs each.', subs:[], pinned:false, archived:false, lastWorked:''},
+      {id:'actingout', name:'Acting Out — 2nd draft', deadline:'', unitLabel:'step', total:4, done:0, perSession:1, minPerSession:60, priority:'normal',
+       notes:'Second draft of the feature script: work the feedback, rewrite, table read, next feedback round.',
+       subs:[{text:'Work through all feedback notes',done:false},{text:'Act 1 rewrite pass',done:false},{text:'Act 2 rewrite pass',done:false},{text:'Read aloud once',done:false}],
+       pinned:false, archived:false, lastWorked:''},
+    ],
+    routines:[
+      {id:'duo',   name:'Duolingo', hint:'the moment you walk in', cadence:{type:'daily'}, slot:'evening', priority:'must', skipRest:false, lock:'', kind:'check'},
+      {id:'move',  name:'20 min physical activity', hint:'before dinner — keep it easy', cadence:{type:'daily'}, slot:'evening', priority:'must', skipRest:false, lock:'', kind:'check'},
+      {id:'snap',  name:'Marvel Snap challenges', hint:'', cadence:{type:'daily'}, slot:'winddown', priority:'must', skipRest:false, lock:'21:00', kind:'check'},
+      {id:'prejac',name:'Prejac training', hint:'≤ 15 min', cadence:{type:'everyN', n:2, anchor:tomorrow}, slot:'evening', priority:'must', skipRest:false, lock:'', kind:'check'},
+      {id:'water', name:'Water', hint:'', cadence:{type:'daily'}, slot:'evening', priority:'normal', skipRest:false, lock:'', kind:'counter', goal:2, oz:40},
+      {id:'creative', name:'10 min drawing or reading', hint:'whichever you feel like', cadence:{type:'daily'}, slot:'winddown', priority:'low', skipRest:false, lock:'', kind:'check'},
+    ],
+  };
+}
+const DEFAULTS=Object.assign({
+  user:'Kyle', assistant:'Jarvis',
+  workStart:'08:00', driveMin:15, morningMin:30,
+  wakeOverride:'', sleepGoalH:8, workEnd:'17:00',
+  week:{0:'project',1:'project',2:'rest',3:'project',4:'rest',5:'off',6:'project'},
+  events:[], tasks:[], checks:{}, counters:{},
+  onboarded:false,
+}, seed());
+
+let S = load();
+function load(){
+  let raw=null;
+  try{ raw=JSON.parse(localStorage.getItem(KEY)); }catch(e){}
+  const s = raw ? Object.assign(structuredClone(DEFAULTS), raw) : structuredClone(DEFAULTS);
+  migrate(s);
+  return s;
+}
+function migrate(s){
+  delete s.screen; delete s.edmontaskLeft; delete s.edmontaskPerSession; delete s.rails;
+  delete s.prejacAnchor; delete s.prejacEveryN; delete s.prejacOnAnchor; delete s.waterGoal; delete s.bottleOz;
+  s.counters = s.counters || {};
+  if(s.water){ s.counters.water = Object.assign({}, s.counters.water, s.water); delete s.water; }
+  for(const k in s.week) if(s.week[k]==='edmontask') s.week[k]='project';
+  s.projects = (s.projects||[]).map(p=>{ const q=Object.assign({
+    id:uid(), name:'', deadline:'', unitLabel:'session', total:1, done:0, perSession:1, minPerSession:45, priority:'normal', notes:'', subs:[], pinned:false, archived:false, lastWorked:''
+  }, p); delete q.active; return q; });
+  s.routines = (s.routines||[]).map(r=>Object.assign({
+    id:uid(), name:'', hint:'', cadence:{type:'daily'}, slot:'evening', priority:'normal', skipRest:false, lock:'', kind:'check', goal:1, oz:0
+  }, r));
+  s.tasks = (s.tasks||[]).map(t=>Object.assign({id:uid(), text:'', due:'', priority:'normal', done:false}, t));
+}
+let storageBroken=false;
+function save(){
+  try{ localStorage.setItem(KEY, JSON.stringify(S)); }
+  catch(e){ if(!storageBroken){ storageBroken=true;
+    alert('Jarvis can’t save on this device.\n\nThe page was likely opened as a file (file://) or storage is blocked. It needs to be served over http/https — see the setup notes.'); } }
+}
+function uid(){ return Math.random().toString(36).slice(2,9); }
+
+/* ---------- dates ---------- */
+function todayISO(d=new Date()){ return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0'); }
+function parseHM(s){ const [h,m]=(s||'0:0').split(':').map(Number); return h*60+(m||0); }
+function fmtHM(mins){ mins=((mins%1440)+1440)%1440; let h=Math.floor(mins/60), m=mins%60; const ap=h<12?'AM':'PM'; let hh=h%12||12; return `${hh}:${String(m).padStart(2,'0')} ${ap}`; }
+function fmtDur(min){ min=Math.max(0,Math.round(min||0)); if(min<60) return `${min} min`; const h=min/60; return (Number.isInteger(h)?h:h.toFixed(1))+` hr${h===1?'':'s'}`; }
+function daysBetween(a,b){ return Math.round((Date.parse(b+'T00:00') - Date.parse(a+'T00:00'))/86400000); }
+function addDays(iso,n){ const d=new Date(iso+'T00:00'); d.setDate(d.getDate()+n); return todayISO(d); }
+
+function wakeMin(){ return S.wakeOverride ? parseHM(S.wakeOverride) : parseHM(S.workStart) - S.driveMin - S.morningMin; }
+function leaveMin(){ return parseHM(S.workStart) - S.driveMin; }
+function asleepMin(){ return wakeMin() - S.sleepGoalH*60; }
+function windDownMin(){ return asleepMin() - 45; }
+
+/* ---------- checks / counters ---------- */
+function dayChecks(iso){ return S.checks[iso] || (S.checks[iso]={}); }
+function isDone(iso,id){ return !!dayChecks(iso)[id]; }
+function toggle(iso,id){ const d=dayChecks(iso); d[id]?delete d[id]:d[id]=true; prune(); save(); render(); }
+function counterVal(id,iso){ return (S.counters[id]&&S.counters[id][iso])||0; }
+function counterSet(id,iso,n){ (S.counters[id]||(S.counters[id]={}))[iso]=Math.max(0,n); save(); render(); }
+function prune(){
+  const cut=addDays(todayISO(),-95);
+  for(const k in S.checks) if(k<cut) delete S.checks[k];
+  for(const id in S.counters) for(const k in S.counters[id]) if(k<cut) delete S.counters[id][k];
+  S.events = S.events.filter(e=> e.date >= addDays(todayISO(),-2));
+}
+
+/* ---------- routines ---------- */
+function routineDue(r, iso, mode){
+  if(r.skipRest && (mode==='rest'||mode==='off')) return false;
+  const c=r.cadence||{type:'daily'};
+  const d=new Date(iso+'T00:00'), dow=d.getDay();
+  switch(c.type){
+    case 'daily': return true;
+    case 'everyN': { const n=Math.max(1,c.n||1); return ((((daysBetween(c.anchor||iso,iso))%n)+n)%n)===0; }
+    case 'weekdays': return (c.days||[]).includes(dow);
+    case 'weeklyN': { const n=Math.max(1,c.n||1); if(!(c.days||[]).includes(dow)) return false;
+      return (((Math.floor(daysBetween(c.anchor||iso,iso)/7)%n)+n)%n)===0; }
+    case 'monthly': { const day=Math.min(31,Math.max(1,c.date||1));
+      const dim=new Date(d.getFullYear(), d.getMonth()+1, 0).getDate();
+      return d.getDate()===day || (day>dim && d.getDate()===dim); }
+    default: return true;
+  }
+}
+function routineComplete(r, iso){
+  if(r.kind==='counter') return counterVal(r.id,iso) >= (r.goal||1);
+  return isDone(iso,r.id);
+}
+function routineStreak(r){
+  let n=0;
+  for(let i=0;i<160;i++){
+    const d=new Date(); d.setDate(d.getDate()-i);
+    const iso=todayISO(d), mode=S.week[d.getDay()];
+    if(!routineDue(r,iso,mode)) continue;
+    if(i===0 && !routineComplete(r,iso)) continue;
+    if(routineComplete(r,iso)) n++; else break;
+  }
+  return n;
+}
+function cadenceLabel(c){
+  c=c||{type:'daily'};
+  if(c.type==='daily') return 'every day';
+  if(c.type==='everyN') return `every ${c.n||1} days`;
+  if(c.type==='weekdays') return (c.days||[]).length===7?'every day':(c.days||[]).slice().sort().map(d=>WD[d].slice(0,3)).join(' ');
+  if(c.type==='weeklyN') return `every ${c.n||1} wks · ${(c.days||[]).map(d=>WD[d].slice(0,3)).join(' ')}`;
+  if(c.type==='monthly') return `day ${c.date||1} monthly`;
+  return '';
+}
+
+/* ---------- events ---------- */
+function eventsOn(iso){ return S.events.filter(e=>e.date===iso).sort((a,b)=>(a.time||'99').localeCompare(b.time||'99')); }
+function eveningCommitment(iso){ return eventsOn(iso).some(e=> !e.time || parseHM(e.time) >= 16*60); }
+
+/* ---------- projects / scheduler ---------- */
+function pDone(p){ return (p.subs&&p.subs.length) ? p.subs.filter(s=>s.done).length : (+p.done||0); }
+function pTotal(p){ return (p.subs&&p.subs.length) ? Math.max(+p.total||0, p.subs.length) : (+p.total||0); }
+function pRemaining(p){ return Math.max(0, pTotal(p) - pDone(p)); }
+function unit(p,n){ const u=p.unitLabel||'session'; return Math.abs(n)===1 ? u : u+'s'; }
+function liveProjects(){ return S.projects.filter(p=>!p.archived && pRemaining(p)>0); }
+function focusNightsPerWeek(){ return Object.values(S.week).filter(v=>v==='project').length || 3; }
+
+function score(o, iso, fnpw){
+  const per=Math.max(1,o.per||1);
+  let daysLeft=null, pressure=0.45, fnl=null, need=null;
+  if(o.deadline){
+    daysLeft=daysBetween(iso,o.deadline);
+    if(daysLeft<=0) pressure=99;
+    else { fnl=Math.max(1,Math.round(daysLeft*fnpw/7)); need=o.remaining/fnl; pressure=need/per; }
+  }
+  const tier = (daysLeft!=null&&daysLeft<=0)?3 : pressure>1.15?2 : 1;
+  return {daysLeft,pressure,fnl,need,per,tier};
+}
+function cmp(a,b,iso,fnpw){
+  const sa=score(a,iso,fnpw), sb=score(b,iso,fnpw);
+  if(sa.tier!==sb.tier) return sb.tier-sa.tier;
+  const pa=prW(a.priority), pb=prW(b.priority);
+  if(pa!==pb) return pb-pa;
+  if(Math.abs(sa.pressure-sb.pressure)>1e-6) return sb.pressure-sa.pressure;
+  return (a.lastWorked||'').localeCompare(b.lastWorked||'');
+}
+function amountFor(s){
+  let amt=s.per;
+  if(s.need!=null) amt=Math.max(s.per, Math.round(s.need));
+  return Math.max(1, Math.min(amt, s.per*2));   // never suggest more than 2 sessions' worth in one night
+}
+function pickFocus(iso){
+  const cands=liveProjects();
+  if(!cands.length) return null;
+  const pinned=cands.filter(p=>p.pinned);
+  const pool=(pinned.length?pinned:cands).map(p=>({p, deadline:p.deadline, remaining:pRemaining(p), per:+p.perSession||1, priority:p.priority, lastWorked:p.lastWorked||''}));
+  const fnpw=focusNightsPerWeek();
+  pool.sort((a,b)=>cmp(a,b,iso,fnpw));
+  const win=pool[0], s=score(win,iso,fnpw);
+  const amount=Math.min(win.remaining, amountFor(s));
+  let status;
+  if(s.daysLeft!=null&&s.daysLeft<=0) status={cls:'over', txt:'past its deadline — do what you can'};
+  else if(!win.deadline) status={cls:'', txt:`steady pace · ${win.remaining} ${unit(win.p,win.remaining)} left · add a deadline for real pacing`};
+  else if(s.pressure>1.25) status={cls:'soon', txt:`behind — ${amount} ${unit(win.p,amount)} tonight to catch up · ${s.fnl} focus nights to deadline`};
+  else if(s.pressure<0.7) status={cls:'ok', txt:`ahead — ${win.remaining} left over ~${s.fnl} focus nights`};
+  else status={cls:'', txt:`on pace — ${win.remaining} ${unit(win.p,win.remaining)} over ~${s.fnl} focus nights`};
+  return {project:win.p, amount, status, feas:feasibility(win.p)};
+}
+
+let _simKey='', _simCache=null;
+function simFinishes(){
+  const key=JSON.stringify(S.projects.map(p=>[p.id,pRemaining(p),p.deadline,p.perSession,p.priority,p.pinned,p.archived]))+JSON.stringify(S.week)+JSON.stringify(S.events);
+  if(_simKey===key) return _simCache;
+  _simKey=key; _simCache=buildProjection(150).finishes;
+  return _simCache;
+}
+function feasibility(p){
+  if(!p.deadline) return null;
+  const f=(simFinishes()||[]).find(x=>x.id===p.id);
+  if(!f) return null;
+  const ok = f.finish && f.finish<=p.deadline;
+  return {ok, finish:f.finish, late: f.finish? Math.max(0, daysBetween(p.deadline, f.finish)) : null};
+}
+
+function buildProjection(days){
+  const fnpw=focusNightsPerWeek();
+  const sim=liveProjects().map(p=>({p, deadline:p.deadline, remaining:pRemaining(p), per:+p.perSession||1, priority:p.priority, lastWorked:p.lastWorked||'', finish:null}));
+  const pinned=sim.filter(s=>s.p.pinned);
+  const out=[];
+  for(let i=0;i<days;i++){
+    const iso=addDays(todayISO(), i);
+    const dow=new Date(iso+'T00:00').getDay(), mode=S.week[dow];
+    const evs=eventsOn(iso);
+    const blocked=evs.some(e=>!e.time||parseHM(e.time)>=16*60);
+    const day={iso, dow, mode, events:evs.map(e=>e.title), focus:null};
+    if(mode==='project' && !blocked){
+      const avail=(pinned.some(s=>s.remaining>0)?pinned:sim).filter(s=>s.remaining>0);
+      if(avail.length){
+        avail.sort((a,b)=>cmp(a,b,iso,fnpw));
+        const w=avail[0], s=score(w,iso,fnpw);
+        const amt=Math.min(w.remaining, amountFor(s));
+        w.remaining-=amt; w.lastWorked=iso;
+        if(w.remaining===0 && !w.finish) w.finish=iso;
+        day.focus={name:w.p.name, amount:amt, unit:unit(w.p,amt), done:w.remaining===0,
+          mins:(w.p.minPerSession||45)*(amt/Math.max(1,w.p.perSession||1))};
+      }
+    }
+    out.push(day);
+  }
+  const finishes=sim.map(s=>({id:s.p.id, name:s.p.name, deadline:s.deadline, finish:s.finish, remaining:s.remaining}));
+  return {out, finishes};
+}
+
+/* ---------- nav / view ---------- */
+const TABS=[
+  ['today','Today','<path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2h11"/>'],
+  ['projects','Projects','<path d="M3 7h18M3 12h18M3 17h18"/>'],
+  ['routines','Routines','<path d="M17 2l4 4-4 4"/><path d="M3 11V9a4 4 0 014-4h14"/><path d="M7 22l-4-4 4-4"/><path d="M21 13v2a4 4 0 01-4 4H3"/>'],
+  ['plan','Plan','<rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/>'],
+  ['settings','Settings','<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 11-2.83 2.83l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 11-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 11-2.83-2.83l.06-.06A1.65 1.65 0 004.6 15a1.65 1.65 0 00-1.51-1H3a2 2 0 110-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 112.83-2.83l.06.06A1.65 1.65 0 009 4.6a1.65 1.65 0 001-1.51V3a2 2 0 114 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 112.83 2.83l-.06.06A1.65 1.65 0 0019.4 9c.14.31.22.65.22 1z"/>'],
+];
+let view='today';
+function buildNav(){
+  const n=$('#nav'); n.innerHTML='';
+  for(const [id,label,path] of TABS){
+    n.append(el('button',{class:id===view?'on':'', onclick:()=>go(id)},[
+      el('span',{html:`<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">${path}</svg>`}),
+      label,
+    ]));
+  }
+}
+function go(v){ view=v; buildNav(); window.scrollTo(0,0); render(); }
+function render(){
+  const y=window.scrollY;
+  const app=$('#app'); app.innerHTML='';
+  ({today:viewToday,projects:viewProjects,routines:viewRoutines,plan:viewPlan,settings:viewSettings}[view])(app);
+  window.scrollTo(0,y);
+}
+
+/* ===== TODAY ===== */
+function viewToday(app){
+  const iso=todayISO(), now=new Date(), nowMin=now.getHours()*60+now.getMinutes();
+  const dow=now.getDay(), mode=S.week[dow];
+  const evening = nowMin>=12*60;
+
+  const hero=el('header',{class:'hero'});
+  const part = now.getHours()<12?'Good morning':now.getHours()<17?'Good afternoon':'Good evening';
+  hero.append(el('div',{class:'greet'}, `${part}, ${S.user}.`));
+  hero.append(el('div',{class:'sub'}, `${WD[dow]}, ${now.toLocaleDateString(undefined,{month:'long',day:'numeric'})} — ${({project:'focus night',rest:'rest night',off:'night off'})[mode]}`));
+  const clk=el('div',{class:'clockline'});
+  if(!evening){ clk.append(pill(`Wake by <b>${fmtHM(wakeMin())}</b>`)); clk.append(pill(`Leave by <b>${fmtHM(leaveMin())}</b>`)); }
+  else { clk.append(pill(`Wind-down <b>${fmtHM(windDownMin())}</b>`, nowMin>=windDownMin()-1)); clk.append(pill(`Lights out <b>${fmtHM(asleepMin())}</b>`, nowMin>=asleepMin()-1)); }
+  hero.append(clk);
+  app.append(hero);
+
+  const evs=eventsOn(iso);
+  const out = evening && eveningCommitment(iso);
+  if(evs.length){
+    const ec=el('div',{class:'card', style:'border-color:var(--accent)'});
+    ec.append(el('div',{class:'faint tiny', style:'margin-bottom:6px'}, out?'You’re out tonight':'On your calendar today'));
+    evs.forEach(e=> ec.append(el('div',{style:'font-weight:600;margin:2px 0'}, (e.time?fmtHM(parseHM(e.time))+'  ':'')+e.title)));
+    if(out) ec.append(el('div',{class:'muted tiny', style:'margin-top:6px'},'Focus block is off tonight — just hit the must-do routines when you’re back, and protect the bedtime.'));
+    app.append(ec);
+  }
+
+  const due = S.routines.filter(r=>routineDue(r,iso,mode));
+  const bySlot = s => due.filter(r=>r.slot===s).sort((a,b)=>prW(b.priority)-prW(a.priority));
+
+  let fp=null;
+  if(mode==='project' && !out) fp=pickFocus(iso);
+
+  // progress: must/normal non-winddown routines + focus
+  const ringItems=[
+    ...due.filter(r=>r.slot!=='winddown' && r.priority!=='low'),
+    ...(fp?[{_focus:true}]:[]),
+  ];
+  const ringDone = ringItems.filter(it=> it._focus ? isDone(iso,'focus') : routineComplete(it,iso)).length;
+  const pct = ringItems.length ? Math.round(ringDone/ringItems.length*100) : 0;
+  const ring=el('div',{class:'ring'}); ring.style.setProperty('--p',pct); ring.append(el('span',{},`${pct}%`));
+  app.append(el('div',{class:'prog'},[ ring, el('div',{},[
+    el('div',{},`${ringDone} of ${ringItems.length} done`),
+    el('div',{class:'faint tiny'}, pct===100?'All wrapped. Go rest.':'One at a time.'),
+  ])]));
+
+  if(fp) app.append(autoFocusCard(fp, iso));
+  else if(mode==='project' && !out) app.append(el('div',{class:'card'},[
+    el('div',{style:'font-weight:650'},'Focus night — nothing queued'),
+    el('div',{class:'muted tiny', style:'margin:6px 0 10px'},'No projects with work left.'),
+    el('button',{class:'btn primary sm', onclick:()=>go('projects')},'Projects'),
+  ]));
+  else if(mode==='rest') app.append(section('Tonight',[noteRow('Rest night — a show or nothing. On the plan on purpose.')]));
+  else if(mode==='off') app.append(section('Tonight',[noteRow('Night off. Go do something fun and don’t log it.')]));
+
+  // tasks
+  const taskItems = S.tasks.filter(t=>!t.done && (t.due && t.due<=iso || (!t.due && t.priority==='must')));
+  if(taskItems.length) app.append(section('Tasks', taskItems
+    .sort((a,b)=> prW(b.priority)-prW(a.priority) || (a.due||'~').localeCompare(b.due||'~'))
+    .map(t=>{
+      const over = t.due && t.due<iso;
+      return taskRow(iso,{id:'task:'+t.id, t:t.text, d: over?`overdue ${daysBetween(t.due,iso)}d`:(t.due?'':'no date'), prio:t.priority, _task:t});
+    })));
+
+  const morn=bySlot('morning');
+  if(morn.length) app.append(section('Morning', morn.map(r=>routineRow(iso,r))));
+
+  const evenRows=bySlot('evening').map(r=>routineRow(iso,r));
+  app.append(section(mode==='off'||mode==='rest'?'Still do':'This evening', evenRows));
+
+  const wd=el('div',{class:'sec'});
+  wd.append(el('h2',{},[ 'Wind-down', el('span',{class:'hint'}, bySlot('winddown').length>1?'pick what fits':'') ]));
+  bySlot('winddown').forEach(r=> wd.append(routineRow(iso,r)));
+  wd.append(noteRow(`Then: shower, in bed by ${fmtHM(asleepMin())}. Phone on the charger across the room.`));
+  app.append(wd);
+}
+
+function pill(html, alert=false){ return el('span',{class:'pill'+(alert?' alert':''), html}); }
+function section(title, rows){
+  const s=el('div',{class:'sec'}); s.append(el('h2',{}, title));
+  rows.forEach(r=>s.append(r));
+  if(!rows.length) s.append(el('div',{class:'empty tiny'},'Nothing here.'));
+  return s;
+}
+function noteRow(txt){ return el('div',{class:'row note'}, txt); }
+
+function routineRow(iso, r){
+  if(r.kind==='counter') return counterRow(iso,r);
+  const done=isDone(iso,r.id);
+  const now=new Date(); const nowMin=now.getHours()*60+now.getMinutes();
+  const locked = r.lock && todayISO()===iso && nowMin < parseHM(r.lock);
+  const row=el('div',{class:'row tap'+(done?' done':'')+(locked?' locked':'')});
+  row.append(el('div',{class:'box', html:CHECK}));
+  const tx=el('div',{class:'tx'});
+  tx.append(el('div',{class:'t'}, r.name));
+  if(r.hint) tx.append(el('div',{class:'d'}, r.hint));
+  row.append(tx);
+  const st=routineStreak(r);
+  if(st>1) row.append(el('div',{class:'streak'}, `\u{1f525} ${st}`));
+  else if(locked) row.append(el('div',{class:'rt'}, `after ${fmtHM(parseHM(r.lock))}`));
+  row.addEventListener('click',()=>{ if(locked && !done) return; toggle(iso, r.id); });
+  return row;
+}
+function counterRow(iso, r){
+  const n=counterVal(r.id,iso), goal=r.goal||1, hit=n>=goal;
+  const row=el('div',{class:'row'+(hit?' done':'')});
+  row.append(el('div',{class:'box', html:CHECK}));
+  const tx=el('div',{class:'tx'});
+  tx.append(el('div',{class:'t'}, r.name));
+  tx.append(el('div',{class:'d'}, `${n} of ${goal}${r.oz?` · ${n*r.oz} oz`:''}${hit?' — done':''}`));
+  row.append(tx);
+  row.append(el('div',{class:'inline'},[
+    el('button',{class:'btn sm', style:'padding:6px 12px', onclick:()=>counterSet(r.id,iso,n-1)},'−'),
+    el('button',{class:'btn sm primary', style:'padding:6px 12px', onclick:()=>counterSet(r.id,iso,n+1)},'+'),
+  ]));
+  return row;
+}
+function taskRow(iso, r){
+  const done=isDone(iso,r.id);
+  const row=el('div',{class:'row tap'+(done?' done':'')});
+  row.append(el('div',{class:'box', html:CHECK}));
+  const tx=el('div',{class:'tx'});
+  tx.append(el('div',{class:'t'}, r.t));
+  if(r.d) tx.append(el('div',{class:'d'}, r.d));
+  row.append(tx);
+  if(r.prio && r.prio!=='normal') row.append(el('div',{class:'dot '+r.prio}));
+  row.addEventListener('click',()=>{ if(r._task) r._task.done=!done; toggle(iso,r.id); });
+  return row;
+}
+
+function autoFocusCard(fp, iso){
+  const p=fp.project;
+  const c=el('div',{class:'card focuscard'});
+  const done=isDone(iso,'focus');
+  const head=el('div',{class:'row tap'+(done?' done':''), style:'border:0;background:none;padding:4px 0;margin:0'});
+  head.append(el('div',{class:'box', html:CHECK}));
+  head.append(el('div',{class:'tx'},[ el('div',{class:'t'}, p.name), el('div',{class:'d'}, `tonight: ${fp.amount} ${unit(p,fp.amount)} · ~${fmtDur((p.minPerSession||45) * (fp.amount/Math.max(1,p.perSession||1)))}`) ]));
+  head.addEventListener('click',()=>toggle(iso,'focus'));
+  c.append(head);
+
+  const meta=el('div',{class:'inline', style:'gap:8px;margin:8px 0 0;flex-wrap:wrap'});
+  const dl=deadlineTag(p.deadline); if(dl) meta.append(dl);
+  if(p.pinned) meta.append(el('span',{class:'badge'},'\u{1f4cc} pinned'));
+  if(p.priority!=='normal') meta.append(el('span',{class:'badge'}, p.priority==='must'?'must-do':'low priority'));
+  if(meta.children.length) c.append(meta);
+  c.append(el('div',{class:'muted tiny', style:'margin-top:6px'}, fp.status.txt));
+  if(fp.feas && !fp.feas.ok) c.append(el('div',{class:'tiny', style:'margin-top:4px;color:var(--bad)'},
+    `⚠ ${fp.feas.finish?`won’t make the deadline — projected done ${dstr(fp.feas.finish)}`:'won’t finish at this pace'}. Raise per-session, add focus nights, or move the date.`));
+
+  c.append(el('div',{class:'bar'},[ el('i',{style:`width:${pTotal(p)?Math.round(pDone(p)/pTotal(p)*100):0}%`}) ]));
+  c.append(el('div',{class:'faint tiny', style:'margin-top:4px'}, `${pDone(p)} of ${pTotal(p)} ${unit(p,pTotal(p))} done`));
+
+  if(p.subs && p.subs.length){
+    const list=el('div',{class:'sub-list'});
+    p.subs.slice().sort((a,b)=>a.done-b.done).slice(0,6).forEach(s=>{
+      const sr=el('div',{class:'sub'+(s.done?' done':'')});
+      sr.append(el('div',{class:'box', html:CHECK}));
+      sr.append(el('div',{class:'s'}, s.text));
+      sr.addEventListener('click',()=>{ s.done=!s.done; p.lastWorked=iso; if(pRemaining(p)===0)p.archived=true; save(); render(); });
+      list.append(sr);
+    });
+    c.append(list);
+  } else {
+    c.append(el('div',{class:'stepper'},[
+      el('button',{onclick:()=>{ p.done=Math.max(0,(+p.done||0)-1); save(); render(); }},'−'),
+      el('div',{class:'val'}, `${pDone(p)} / ${pTotal(p)}`),
+      el('button',{onclick:()=>{ p.done=Math.min(pTotal(p),(+p.done||0)+1); p.lastWorked=iso; if(pRemaining(p)===0)p.archived=true; save(); render(); }},'+'),
+    ]));
+  }
+  c.append(el('button',{class:'btn primary sm block', style:'margin-top:12px',
+    onclick:()=>{
+      if(p.subs&&p.subs.length){ let k=fp.amount; for(const s of p.subs){ if(k<=0)break; if(!s.done){s.done=true;k--;} } }
+      else p.done=Math.min(pTotal(p),(+p.done||0)+fp.amount);
+      p.lastWorked=iso; dayChecks(iso).focus=true; if(pRemaining(p)===0)p.archived=true; save(); render();
+    }}, `Log tonight’s ${fp.amount} ${unit(p,fp.amount)} done`));
+  return c;
+}
+function deadlineTag(d){
+  if(!d) return null;
+  const n=daysBetween(todayISO(), d);
+  let cls='deadline', txt;
+  if(n<0){ cls+=' over'; txt=`${-n}d overdue`; }
+  else if(n===0){ cls+=' over'; txt='due today'; }
+  else if(n<=10){ cls+=' soon'; txt=`${n}d left`; }
+  else txt=`due ${new Date(d+'T00:00').toLocaleDateString(undefined,{month:'short',day:'numeric'})} · ${n}d`;
+  return el('span',{class:cls}, txt);
+}
+
+/* ===== PROJECTS ===== */
+function viewProjects(app){
+  app.append(el('header',{class:'hero'},[ el('div',{class:'greet'},'Projects'), el('div',{class:'sub'},'Things with a finish line. Jarvis assigns them to focus nights by priority, deadline, and pace.') ]));
+  app.append(el('button',{class:'btn primary block', style:'margin:6px 0 4px', onclick:()=>editProject()}, '+ New project'));
+  const iso=todayISO(), fpNext=pickFocus(iso);
+  const live=S.projects.filter(p=>!p.archived), done=S.projects.filter(p=>p.archived);
+  if(!live.length) app.append(el('div',{class:'empty'},'No projects.'));
+  live.sort((a,b)=>(b.pinned?1:0)-(a.pinned?1:0) || prW(b.priority)-prW(a.priority) || (a.deadline||'~').localeCompare(b.deadline||'~'));
+  for(const p of live) app.append(projectCard(p, iso, fpNext&&fpNext.project===p));
+  if(done.length){
+    app.append(el('div',{class:'divider'}));
+    app.append(el('h2',{},`Done (${done.length})`));
+    for(const p of done) app.append(projectCard(p, iso, false));
+  }
+}
+function projectCard(p, iso, isNext){
+  const c=el('div',{class:'card'+(isNext?' focuscard':'')});
+  const feas=feasibility(p);
+  c.append(el('h3',{}, (p.pinned?'\u{1f4cc} ':'')+p.name));
+  const tags=el('div',{class:'inline', style:'gap:6px;margin-top:5px;flex-wrap:wrap'});
+  const dl=deadlineTag(p.deadline); if(dl) tags.append(dl);
+  if(p.priority!=='normal') tags.append(el('span',{class:'badge'}, p.priority==='must'?'must-do':'low'));
+  if(isNext) tags.append(el('span',{class:'badge ok'},'up next'));
+  if(feas && !feas.ok) tags.append(el('span',{class:'badge over'},'behind deadline'));
+  if(tags.children.length) c.append(tags);
+  if(p.notes) c.append(el('div',{class:'muted tiny', style:'margin-top:8px;white-space:pre-wrap'}, p.notes));
+  c.append(el('div',{class:'bar'},[ el('i',{style:`width:${pTotal(p)?Math.round(pDone(p)/pTotal(p)*100):0}%`}) ]));
+  c.append(el('div',{class:'faint tiny', style:'margin-top:4px'}, `${pDone(p)} / ${pTotal(p)} ${unit(p,pTotal(p))}`+(feas&&feas.finish?` · projected done ${dstr(feas.finish)}`:'')));
+  const act=el('div',{class:'row-actions'});
+  if(!p.archived){
+    act.append(el('button',{class:'btn sm'+(p.pinned?' primary':''), onclick:()=>{ p.pinned=!p.pinned; save(); render(); }}, p.pinned?'Pinned':'Pin'));
+    act.append(el('button',{class:'btn sm', onclick:()=>editProject(p)},'Edit'));
+    act.append(el('button',{class:'btn sm', onclick:()=>{ p.archived=true; p.pinned=false; save(); render(); }},'Archive'));
+  } else {
+    act.append(el('button',{class:'btn sm', onclick:()=>{ p.archived=false; save(); render(); }},'Reopen'));
+    act.append(el('button',{class:'del', onclick:()=>{ if(confirm('Delete permanently?')){ S.projects=S.projects.filter(x=>x!==p); save(); render(); } }},'Delete'));
+  }
+  c.append(act);
+  return c;
+}
+function editProject(p){
+  const isNew=!p;
+  p = p || {id:uid(), name:'', deadline:'', unitLabel:'session', total:1, done:0, perSession:1, priority:'normal', notes:'', subs:[], pinned:false, archived:false, lastWorked:''};
+  let prio=p.priority;
+  const subsText=(p.subs||[]).map(s=>(s.done?'x ':'')+s.text).join('\n');
+  sheet(isNew?'New project':'Edit project', [
+    field('Name', `<input id="p_name" value="${esc(p.name)}" placeholder="Edmontask Live Shows">`),
+    labeled('Priority', segmented(PRIOS, prio, v=>prio=v)),
+    field('Deadline (optional — powers pacing)', `<input id="p_dl" type="date" value="${p.deadline||''}">`),
+    el('div',{class:'grid2'},[
+      field('How many total?', `<input id="p_total" type="number" min="1" value="${p.total||1}">`),
+      field('Called…', `<input id="p_unit" value="${esc(p.unitLabel||'session')}" placeholder="episodes">`),
+    ]),
+    el('div',{class:'grid2'},[
+      field('Already done', `<input id="p_done" type="number" min="0" value="${p.done||0}">`),
+      field('Per work session', `<input id="p_per" type="number" min="1" value="${p.perSession||1}">`),
+    ]),
+    field('Minutes a session actually takes', `<input id="p_min" type="number" min="5" step="5" value="${p.minPerSession||45}">`),
+    field('Notes', `<textarea id="p_notes">${esc(p.notes||'')}</textarea>`),
+    field('Steps (optional, one per line — if used, these track progress)', `<textarea id="p_subs" placeholder="Act 1 pass\nAct 2 pass">${esc(subsText)}</textarea>`),
+  ], ()=>{
+    p.name=$('#p_name').value.trim(); if(!p.name) return false;
+    p.priority=prio;
+    p.deadline=$('#p_dl').value;
+    p.total=Math.max(1,+$('#p_total').value||1);
+    p.unitLabel=$('#p_unit').value.trim()||'session';
+    p.done=Math.max(0,+$('#p_done').value||0);
+    p.perSession=Math.max(1,+$('#p_per').value||1);
+    p.minPerSession=Math.max(5,+$('#p_min').value||45);
+    p.notes=$('#p_notes').value.trim();
+    p.subs=$('#p_subs').value.split('\n').map(l=>l.trim()).filter(Boolean).map(l=>({text:l.replace(/^x\s+/i,''), done:/^x\s+/i.test(l)}));
+    if(p.subs.length) p.total=Math.max(p.total,p.subs.length);
+    if(isNew) S.projects.push(p);
+    save(); render(); return true;
+  }, isNew?null:()=>{ if(confirm('Delete this project?')){ S.projects=S.projects.filter(x=>x!==p); save(); closeSheet(); render(); } });
+}
+
+/* ===== ROUTINES ===== */
+function viewRoutines(app){
+  app.append(el('header',{class:'hero'},[ el('div',{class:'greet'},'Routines'), el('div',{class:'sub'},'Ongoing things on a cadence. These fill your days automatically.') ]));
+  app.append(el('button',{class:'btn primary block', style:'margin:6px 0 4px', onclick:()=>editRoutine()}, '+ New routine'));
+  const order={morning:0,evening:1,winddown:2};
+  S.routines.slice().sort((a,b)=>(order[a.slot]-order[b.slot]) || prW(b.priority)-prW(a.priority)).forEach(r=>{
+    const c=el('div',{class:'card'});
+    c.append(el('div',{class:'inline', style:'gap:8px'},[ el('div',{class:'dot '+r.priority}), el('h3',{style:'flex:1'}, r.name), r.kind==='counter'?el('span',{class:'badge'},'counter'):null ]));
+    c.append(el('div',{class:'faint tiny', style:'margin-top:6px'}, `${cadenceLabel(r.cadence)} · ${({morning:'morning',evening:'evening',winddown:'wind-down'})[r.slot]}${r.lock?` · after ${fmtHM(parseHM(r.lock))}`:''}${r.skipRest?' · skips rest nights':''}`));
+    if(r.hint) c.append(el('div',{class:'muted tiny', style:'margin-top:4px'}, r.hint));
+    c.append(el('div',{class:'row-actions'},[
+      el('button',{class:'btn sm', onclick:()=>editRoutine(r)},'Edit'),
+      el('button',{class:'del', onclick:()=>{ if(confirm('Delete this routine?')){ S.routines=S.routines.filter(x=>x!==r); save(); render(); } }},'Delete'),
+    ]));
+    app.append(c);
+  });
+}
+function editRoutine(r){
+  const isNew=!r;
+  r = r || {id:uid(), name:'', hint:'', cadence:{type:'daily'}, slot:'evening', priority:'normal', skipRest:false, lock:'', kind:'check', goal:1, oz:0};
+  const d = JSON.parse(JSON.stringify(r));
+  let prio=d.priority, slot=d.slot, kind=d.kind;
+
+  const cadBox=el('div',{});
+  function drawCad(){
+    cadBox.innerHTML='';
+    const t=d.cadence.type;
+    const typeSel=el('select',{onchange:e=>{ d.cadence={type:e.target.value, n:2, days:d.cadence.days||[new Date().getDay()], date:d.cadence.date||1, anchor:todayISO()}; drawCad(); }});
+    [['daily','Every day'],['everyN','Every N days'],['weekdays','Certain weekdays'],['weeklyN','Every N weeks'],['monthly','Monthly']].forEach(([v,l])=>
+      typeSel.append(el('option',{value:v, selected:v===t?'selected':null}, l)));
+    cadBox.append(labeled('Repeats', typeSel));
+    if(t==='everyN') cadBox.append(field('Every how many days?', numInput(d.cadence.n||2, v=>d.cadence.n=v)));
+    if(t==='weeklyN') cadBox.append(field('Every how many weeks?', numInput(d.cadence.n||2, v=>d.cadence.n=v)));
+    if(t==='weekdays'||t==='weeklyN') cadBox.append(labeled('On', dayChips(d.cadence.days||[], ds=>d.cadence.days=ds)));
+    if(t==='monthly') cadBox.append(field('On day of month', numInput(d.cadence.date||1, v=>d.cadence.date=v)));
+    if(t==='everyN'||t==='weeklyN') cadBox.append(el('div',{class:'faint tiny'},'Counts from today.'));
+  }
+  drawCad();
+
+  const kindBox=el('div',{});
+  function drawKind(){
+    kindBox.innerHTML='';
+    kindBox.append(labeled('Type', segmented([['check','Checkbox'],['counter','Counter']], kind, v=>{ kind=v; drawKind(); })));
+    if(kind==='counter') kindBox.append(el('div',{class:'grid2'},[
+      field('Daily goal', numInput(d.goal||1, v=>d.goal=v)),
+      field('oz each (optional)', numInput(d.oz||0, v=>d.oz=v)),
+    ]));
+  }
+  drawKind();
+
+  sheet(isNew?'New routine':'Edit routine', [
+    field('Name', `<input id="r_name" value="${esc(d.name)}" placeholder="Stretch / Duolingo / Call mom">`),
+    field('Hint (optional)', `<input id="r_hint" value="${esc(d.hint||'')}" placeholder="before dinner">`),
+    labeled('Priority', segmented(PRIOS, prio, v=>prio=v)),
+    labeled('When', segmented([['morning','Morning'],['evening','Evening'],['winddown','Wind-down']], slot, v=>slot=v)),
+    cadBox,
+    field('Not available until (optional time)', `<input id="r_lock" type="time" value="${d.lock||''}">`),
+    checkboxRow('r_skip','Skip on rest & off nights', d.skipRest),
+    kindBox,
+  ], ()=>{
+    d.name=$('#r_name').value.trim(); if(!d.name) return false;
+    d.hint=$('#r_hint').value.trim();
+    d.priority=prio; d.slot=slot; d.kind=kind;
+    d.lock=$('#r_lock').value;
+    d.skipRest=$('#r_skip').checked;
+    if(d.cadence.type!=='everyN'&&d.cadence.type!=='weeklyN') delete d.cadence.anchor; else d.cadence.anchor=d.cadence.anchor||todayISO();
+    Object.assign(r, d);
+    if(isNew) S.routines.push(r);
+    save(); render(); return true;
+  }, isNew?null:()=>{ if(confirm('Delete this routine?')){ S.routines=S.routines.filter(x=>x!==r); save(); closeSheet(); render(); } });
+}
+
+/* ===== PLAN ===== */
+function viewPlan(app){
+  app.append(el('header',{class:'hero'},[ el('div',{class:'greet'},'Plan'), el('div',{class:'sub'},'The next 10 days, projected from today’s numbers. Changes when anything does.') ]));
+
+  const {out} = buildProjection(10);
+  const finishes = simFinishes() || [];
+  const pc=el('div',{class:'card'});
+  out.forEach(day=>{
+    const row=el('div',{class:'planday'+(day.mode!=='project'||!day.focus?' rest':'')});
+    row.append(el('div',{class:'dow'}, day.iso===todayISO()?'Today':new Date(day.iso+'T00:00').toLocaleDateString(undefined,{weekday:'short',month:'numeric',day:'numeric'})));
+    let what;
+    if(day.focus) what = `${day.focus.name} ×${day.focus.amount}${day.focus.mins?` · ${fmtDur(day.focus.mins)}`:''}${day.focus.done?' — done ✓':''}`;
+    else if(day.mode==='rest') what='Rest';
+    else if(day.mode==='off') what='Off';
+    else what='Focus night — open';
+    const w=el('div',{class:'what', style:'flex:1'}, what);
+    if(day.events.length) w.append(el('div',{class:'faint tiny'}, '• '+day.events.join(', ')));
+    row.append(w);
+    pc.append(row);
+  });
+  app.append(pc);
+
+  const fin=finishes.filter(f=>f.deadline);
+  if(fin.length){
+    const fc=el('div',{class:'card'});
+    fc.append(el('h3',{},'Deadlines'));
+    fin.forEach(f=>{
+      let msg, cls='color:var(--good)';
+      if(!f.finish){ msg='won’t finish at this pace'; cls='color:var(--bad)'; }
+      else if(f.finish>f.deadline){ msg=`${daysBetween(f.deadline,f.finish)}d late — done ${dstr(f.finish)}`; cls='color:var(--bad)'; }
+      else { msg=`on track — done ${dstr(f.finish)}`; }
+      fc.append(el('div',{class:'weekrow'},[ el('div',{}, f.name), el('div',{class:'tiny', style:cls}, msg) ]));
+    });
+    app.append(fc);
+  }
+
+  const modes={project:'Focus night', rest:'Rest night', off:'Off'};
+  const wc=el('div',{class:'card'});
+  wc.append(el('h3',{},'Week shape'));
+  for(let i=1;i<=6;i++) wc.append(weekRow(i,modes));
+  wc.append(weekRow(0,modes));
+  wc.append(el('div',{class:'faint tiny', style:'margin-top:10px'}, `${focusNightsPerWeek()} focus nights a week.`));
+  app.append(wc);
+
+  const cm=el('div',{class:'card'});
+  cm.append(el('h3',{},'Commitments'));
+  cm.append(el('div',{class:'faint tiny', style:'margin:6px 0 10px'},'An evening one cancels that night’s focus block.'));
+  S.events.slice().sort((a,b)=>(a.date+a.time).localeCompare(b.date+b.time)).forEach(e=>{
+    cm.append(el('div',{class:'weekrow'},[
+      el('div',{},[ el('div',{}, e.title), el('div',{class:'faint tiny'}, dstr(e.date)+(e.time?' · '+fmtHM(parseHM(e.time)):'')) ]),
+      el('button',{class:'del', onclick:()=>{ S.events=S.events.filter(x=>x!==e); save(); render(); }},'Remove'),
+    ]));
+  });
+  if(!S.events.length) cm.append(el('div',{class:'empty tiny'},'Nothing booked.'));
+  cm.append(el('button',{class:'btn sm block', style:'margin-top:10px', onclick:()=>addEvent()},'+ Add commitment'));
+  app.append(cm);
+
+  const tc=el('div',{class:'card'});
+  tc.append(el('h3',{},'Tasks'));
+  tc.append(el('div',{class:'faint tiny', style:'margin:6px 0 10px'},'One-offs. Dated or Must-do ones show on Today.'));
+  S.tasks.filter(t=>!t.done).sort((a,b)=>prW(b.priority)-prW(a.priority) || (a.due||'~').localeCompare(b.due||'~')).forEach(t=>{
+    tc.append(el('div',{class:'weekrow'},[
+      el('div',{class:'inline', style:'gap:8px'},[ el('div',{class:'dot '+t.priority}), el('div',{},[ el('div',{}, t.text), el('div',{class:'faint tiny'}, t.due?dstr(t.due):'no date') ]) ]),
+      el('div',{class:'inline'},[
+        el('button',{class:'btn sm', onclick:()=>editTask(t)},'Edit'),
+        el('button',{class:'del', onclick:()=>{ S.tasks=S.tasks.filter(x=>x!==t); save(); render(); }},'✕'),
+      ]),
+    ]));
+  });
+  if(!S.tasks.filter(t=>!t.done).length) tc.append(el('div',{class:'empty tiny'},'None.'));
+  tc.append(el('button',{class:'btn sm block', style:'margin-top:10px', onclick:()=>editTask()},'+ Add task'));
+  app.append(tc);
+}
+function dstr(iso){ return new Date(iso+'T00:00').toLocaleDateString(undefined,{weekday:'short',month:'short',day:'numeric'}); }
+function weekRow(i,modes){
+  const r=el('div',{class:'weekrow'});
+  r.append(el('div',{}, WD[i]));
+  const sel=el('select',{onchange:e=>{ S.week[i]=e.target.value; save(); render(); }});
+  for(const k in modes) sel.append(el('option',{value:k, selected:S.week[i]===k?'selected':null}, modes[k]));
+  r.append(sel);
+  return r;
+}
+function addEvent(){
+  const e={id:uid(), date:todayISO(), time:'', title:''};
+  sheet('Add commitment',[
+    field('What', `<input id="e_t" placeholder="Dinner with friends">`),
+    field('Day', `<input id="e_d" type="date" value="${todayISO()}">`),
+    field('Time (optional)', `<input id="e_tm" type="time">`),
+  ], ()=>{ e.title=$('#e_t').value.trim(); if(!e.title) return false; e.date=$('#e_d').value||todayISO(); e.time=$('#e_tm').value; S.events.push(e); save(); render(); return true; });
+}
+function editTask(t){
+  const isNew=!t; t=t||{id:uid(), text:'', due:'', priority:'normal', done:false};
+  let prio=t.priority;
+  sheet(isNew?'Add task':'Edit task',[
+    field('Task', `<input id="t_text" value="${esc(t.text)}" placeholder="Email the Edmontask co-host">`),
+    labeled('Priority', segmented(PRIOS, prio, v=>prio=v)),
+    field('Day (optional)', `<input id="t_due" type="date" value="${t.due||''}">`),
+  ], ()=>{ t.text=$('#t_text').value.trim(); if(!t.text) return false; t.priority=prio; t.due=$('#t_due').value; if(isNew) S.tasks.push(t); save(); render(); return true; },
+  isNew?null:()=>{ S.tasks=S.tasks.filter(x=>x!==t); save(); closeSheet(); render(); });
+}
+
+/* ===== SETTINGS ===== */
+function viewSettings(app){
+  app.append(el('header',{class:'hero'},[ el('div',{class:'greet'},'Settings'), el('div',{class:'sub'},'Set once. Then stop thinking about it.') ]));
+
+  const who=el('div',{class:'card'});
+  who.append(el('h3',{},'Names'));
+  who.append(field('Your name', `<input id="s_user" value="${esc(S.user)}">`));
+  who.append(field('Assistant name', `<input id="s_asst" value="${esc(S.assistant)}">`));
+  app.append(who);
+
+  const sl=el('div',{class:'card'});
+  sl.append(el('h3',{},'Sleep & schedule'));
+  sl.append(el('div',{class:'grid2'},[
+    field('Work starts', `<input id="s_ws" type="time" value="${S.workStart}">`),
+    field('Work ends', `<input id="s_we" type="time" value="${S.workEnd}">`),
+    field('Drive (min)', `<input id="s_drive" type="number" min="0" value="${S.driveMin}">`),
+    field('Morning routine (min)', `<input id="s_morn" type="number" min="0" value="${S.morningMin}">`),
+    field('Sleep goal (hrs)', `<input id="s_sleep" type="number" min="5" max="10" step="0.5" value="${S.sleepGoalH}">`),
+    field('Wake override', `<input id="s_wake" type="time" value="${S.wakeOverride}">`),
+  ]));
+  sl.append(el('div',{class:'muted tiny', id:'s_calc', style:'margin-top:4px'}));
+  app.append(sl);
+
+  const dm=el('div',{class:'card'});
+  dm.append(el('h3',{},'Data'));
+  dm.append(el('div',{class:'row-actions'},[
+    el('button',{class:'btn sm', onclick:exportData},'Export backup'),
+    el('button',{class:'btn sm', onclick:importData},'Import'),
+    el('button',{class:'del', onclick:()=>{ if(confirm('Erase everything and start over?')){ localStorage.removeItem(KEY); S=load(); render(); } }},'Reset all'),
+  ]));
+  dm.append(el('div',{class:'faint tiny', style:'margin-top:8px'},'Stored only on this device. Routines & prejac cadence live in the Routines tab now.'));
+  app.append(dm);
+
+  const bind=(id,fn)=>{ const e=$('#'+id); if(e) e.addEventListener('change',()=>{ fn(e.value); save(); refreshCalc(); render(); }); };
+  bind('s_user',v=>S.user=v.trim()||'Kyle'); bind('s_asst',v=>S.assistant=v.trim()||'Jarvis');
+  bind('s_ws',v=>S.workStart=v); bind('s_we',v=>S.workEnd=v);
+  bind('s_drive',v=>S.driveMin=+v||0); bind('s_morn',v=>S.morningMin=+v||0);
+  bind('s_sleep',v=>S.sleepGoalH=+v||8); bind('s_wake',v=>S.wakeOverride=v);
+  refreshCalc();
+  function refreshCalc(){ const c=$('#s_calc'); if(c) c.textContent=`→ Wake ${fmtHM(wakeMin())} · leave ${fmtHM(leaveMin())} · wind-down ${fmtHM(windDownMin())} · lights out ${fmtHM(asleepMin())}`; }
+}
+
+/* ---------- form helpers ---------- */
+function segmented(options, value, onChange){
+  const wrap=el('div',{class:'seg'});
+  const btns=options.map(([ov,label])=>{
+    const b=el('button',{class:'seg-b'+(ov===value?' on':''), onclick:()=>{ btns.forEach(x=>x.classList.remove('on')); b.classList.add('on'); onChange(ov); }}, label);
+    return b;
+  });
+  btns.forEach(b=>wrap.append(b));
+  return wrap;
+}
+function dayChips(days, onChange){
+  const set=new Set(days);
+  const wrap=el('div',{class:'daychips'});
+  WD1.forEach((l,i)=>{
+    const b=el('button',{class:set.has(i)?'on':'', onclick:()=>{
+      if(set.has(i)){ set.delete(i); b.classList.remove('on'); } else { set.add(i); b.classList.add('on'); }
+      onChange([...set].sort((x,y)=>x-y));
+    }}, l);
+    wrap.append(b);
+  });
+  return wrap;
+}
+function numInput(v, onChange){
+  const i=el('input',{type:'number', min:'1', value:v, onchange:e=>onChange(Math.max(1,+e.target.value||1))});
+  return i;
+}
+function checkboxRow(id, label, checked){
+  const w=el('label',{class:'field', style:'display:flex;align-items:center;gap:10px'});
+  const c=el('input',{type:'checkbox', id, style:'width:auto'}); if(checked) c.checked=true;
+  w.append(c, el('span',{class:'lab', style:'margin:0'}, label));
+  return w;
+}
+function labeled(lab, node){ return el('label',{class:'field'},[ el('span',{class:'lab'}, lab), node ]); }
+function field(lab, inner){
+  if(inner && inner.nodeType){ return lab ? labeled(lab, inner) : el('div',{}, inner); }
+  return el('label',{class:'field'},[ el('span',{class:'lab'}, lab), el('span',{html:inner}) ]);
+}
+function esc(s){ return (s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+
+/* ---------- sheet ---------- */
+function sheet(title, fields, onSave, onDelete){
+  const dlg=$('#sheet'); dlg.innerHTML=''; dlg.style.display='';
+  const box=el('div',{class:'sheet'});
+  box.append(el('h2',{}, title));
+  fields.forEach(f=>box.append(f));
+  const acts=el('div',{class:'row-actions', style:'margin-top:16px'});
+  acts.append(el('button',{class:'btn primary', onclick:()=>{ let ok=true; try{ ok=onSave()!==false; }catch(e){ alert('Couldn’t save: '+e.message); ok=false; } if(ok) closeSheet(); }},'Save'));
+  acts.append(el('button',{class:'btn ghost', onclick:closeSheet},'Cancel'));
+  if(onDelete) acts.append(el('button',{class:'del', style:'margin-left:auto', onclick:onDelete},'Delete'));
+  box.append(acts); dlg.append(box);
+  if(typeof dlg.showModal==='function') dlg.showModal();
+  else { dlg.setAttribute('open',''); dlg.style.cssText='display:block;position:fixed;inset:auto 0 0 0;z-index:100'; }
+}
+function closeSheet(){ const d=$('#sheet'); try{ d.close(); }catch(e){} d.removeAttribute('open'); d.style.display='none'; }
+
+/* ---------- data io ---------- */
+function exportData(){
+  const blob=new Blob([JSON.stringify(S,null,2)],{type:'application/json'});
+  const a=el('a',{href:URL.createObjectURL(blob), download:`jarvis-backup-${todayISO()}.json`});
+  document.body.append(a); a.click(); a.remove();
+}
+function importData(){
+  const inp=el('input',{type:'file', accept:'.json,application/json'});
+  inp.addEventListener('change',()=>{ const f=inp.files[0]; if(!f) return; const rd=new FileReader();
+    rd.onload=()=>{ try{ S=Object.assign(structuredClone(DEFAULTS), JSON.parse(rd.result)); migrate(S); save(); render(); alert('Imported.'); }catch(e){ alert('Bad file.'); } };
+    rd.readAsText(f); });
+  inp.click();
+}
+
+/* ---------- onboarding ---------- */
+function onboard(){
+  if(S.onboarded) return;
+  sheet('Set up '+S.assistant, [
+    field('', el('p',{class:'muted', style:'margin:4px 0'}, 'Two numbers and you’re running. Everything else has sane defaults you can tweak.')),
+    field('What time do you want to wake up?', `<input id="o_wake" type="time" value="07:15">`),
+    field('When do you get home from work?', `<input id="o_home" type="time" value="17:15">`),
+    field('Your name', `<input id="o_name" value="${esc(S.user)}">`),
+  ], ()=>{
+    S.wakeOverride=$('#o_wake').value;
+    const h=$('#o_home').value; if(h) S.workEnd=fmt24(parseHM(h)-S.driveMin);
+    S.user=$('#o_name').value.trim()||'Kyle';
+    S.onboarded=true; save(); render(); return true;
+  });
+}
+function fmt24(m){ m=((m%1440)+1440)%1440; return String(Math.floor(m/60)).padStart(2,'0')+':'+String(m%60).padStart(2,'0'); }
+
+/* ---------- boot ---------- */
+let lastDay=todayISO();
+setInterval(()=>{ const t=todayISO(); if(t!==lastDay){ lastDay=t; render(); } }, 60000);
+document.addEventListener('visibilitychange',()=>{ if(!document.hidden) render(); });
+buildNav(); render(); onboard();
+if('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(()=>{});
+</script>
+</body>
+</html>
