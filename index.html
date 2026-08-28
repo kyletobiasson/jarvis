@@ -159,29 +159,23 @@ function prW(p){ return p==='must'?3:p==='low'?1:2; }
 
 /* ---------- storage ---------- */
 const KEY='pa.v1';
+// Generic first-run examples only. Real data is entered on-device and stored in
+// localStorage — it never lives in this file or the repo.
 function seed(){
   const tomorrow=todayISO(new Date(Date.now()+86400000));
   return {
-    projects:[
-      {id:'edmontask', name:'Edmontask Live Shows', deadline:'', unitLabel:'episode', total:9, done:1, perSession:1, minPerSession:180, priority:'normal',
-       notes:'Edit each recorded live episode and get it off the computer to close the season. ~3 hrs each.', subs:[], pinned:false, archived:false, lastWorked:''},
-      {id:'actingout', name:'Acting Out — 2nd draft', deadline:'', unitLabel:'step', total:4, done:0, perSession:1, minPerSession:60, priority:'normal',
-       notes:'Second draft of the feature script: work the feedback, rewrite, table read, next feedback round.',
-       subs:[{text:'Work through all feedback notes',done:false},{text:'Act 1 rewrite pass',done:false},{text:'Act 2 rewrite pass',done:false},{text:'Read aloud once',done:false}],
-       pinned:false, archived:false, lastWorked:''},
-    ],
+    projects:[],
     routines:[
-      {id:'duo',   name:'Duolingo', hint:'the moment you walk in', cadence:{type:'daily'}, slot:'evening', priority:'must', skipRest:false, lock:'', kind:'check'},
-      {id:'move',  name:'20 min physical activity', hint:'before dinner — keep it easy', cadence:{type:'daily'}, slot:'evening', priority:'must', skipRest:false, lock:'', kind:'check'},
-      {id:'snap',  name:'Marvel Snap challenges', hint:'', cadence:{type:'daily'}, slot:'winddown', priority:'must', skipRest:false, lock:'21:00', kind:'check'},
-      {id:'prejac',name:'Prejac training', hint:'≤ 15 min', cadence:{type:'everyN', n:2, anchor:tomorrow}, slot:'evening', priority:'must', skipRest:false, lock:'', kind:'check'},
-      {id:'water', name:'Water', hint:'', cadence:{type:'daily'}, slot:'evening', priority:'normal', skipRest:false, lock:'', kind:'counter', goal:2, oz:40},
-      {id:'creative', name:'10 min drawing or reading', hint:'whichever you feel like', cadence:{type:'daily'}, slot:'winddown', priority:'low', skipRest:false, lock:'', kind:'check'},
+      {id:'r_move',  name:'Exercise', hint:'keep it easy', cadence:{type:'daily'}, slot:'evening', priority:'must', skipRest:false, lock:'', kind:'check'},
+      {id:'r_learn', name:'Language practice', hint:'', cadence:{type:'daily'}, slot:'evening', priority:'must', skipRest:false, lock:'', kind:'check'},
+      {id:'r_alt',   name:'Stretch', hint:'', cadence:{type:'everyN', n:2, anchor:tomorrow}, slot:'evening', priority:'normal', skipRest:false, lock:'', kind:'check'},
+      {id:'r_water', name:'Water', hint:'', cadence:{type:'daily'}, slot:'evening', priority:'normal', skipRest:false, lock:'', kind:'counter', goal:2, oz:40},
+      {id:'r_skill', name:'Skill practice', hint:'reading, drawing, writing — pick one', cadence:{type:'daily'}, slot:'winddown', priority:'low', skipRest:false, lock:'', kind:'check'},
     ],
   };
 }
 const DEFAULTS=Object.assign({
-  user:'Kyle', assistant:'Jarvis',
+  user:'there', assistant:'Jarvis',
   workStart:'08:00', driveMin:15, morningMin:30,
   wakeOverride:'', sleepGoalH:8, workEnd:'17:00',
   week:{0:'project',1:'project',2:'rest',3:'project',4:'rest',5:'off',6:'project'},
@@ -198,8 +192,7 @@ function load(){
   return s;
 }
 function migrate(s){
-  delete s.screen; delete s.edmontaskLeft; delete s.edmontaskPerSession; delete s.rails;
-  delete s.prejacAnchor; delete s.prejacEveryN; delete s.prejacOnAnchor; delete s.waterGoal; delete s.bottleOz;
+  ['screen','edmontaskLeft','edmontaskPerSession','rails','waterGoal','bottleOz'].forEach(k=>delete s[k]);
   s.counters = s.counters || {};
   if(s.water){ s.counters.water = Object.assign({}, s.counters.water, s.water); delete s.water; }
   for(const k in s.week) if(s.week[k]==='edmontask') s.week[k]='project';
@@ -644,7 +637,7 @@ function editProject(p){
   let prio=p.priority;
   const subsText=(p.subs||[]).map(s=>(s.done?'x ':'')+s.text).join('\n');
   sheet(isNew?'New project':'Edit project', [
-    field('Name', `<input id="p_name" value="${esc(p.name)}" placeholder="Edmontask Live Shows">`),
+    field('Name', `<input id="p_name" value="${esc(p.name)}" placeholder="e.g. Website redesign">`),
     labeled('Priority', segmented(PRIOS, prio, v=>prio=v)),
     field('Deadline (optional — powers pacing)', `<input id="p_dl" type="date" value="${p.deadline||''}">`),
     el('div',{class:'grid2'},[
@@ -841,7 +834,7 @@ function editTask(t){
   const isNew=!t; t=t||{id:uid(), text:'', due:'', priority:'normal', done:false};
   let prio=t.priority;
   sheet(isNew?'Add task':'Edit task',[
-    field('Task', `<input id="t_text" value="${esc(t.text)}" placeholder="Email the Edmontask co-host">`),
+    field('Task', `<input id="t_text" value="${esc(t.text)}" placeholder="e.g. Book dentist appointment">`),
     labeled('Priority', segmented(PRIOS, prio, v=>prio=v)),
     field('Day (optional)', `<input id="t_due" type="date" value="${t.due||''}">`),
   ], ()=>{ t.text=$('#t_text').value.trim(); if(!t.text) return false; t.priority=prio; t.due=$('#t_due').value; if(isNew) S.tasks.push(t); save(); render(); return true; },
@@ -878,11 +871,11 @@ function viewSettings(app){
     el('button',{class:'btn sm', onclick:importData},'Import'),
     el('button',{class:'del', onclick:()=>{ if(confirm('Erase everything and start over?')){ localStorage.removeItem(KEY); S=load(); render(); } }},'Reset all'),
   ]));
-  dm.append(el('div',{class:'faint tiny', style:'margin-top:8px'},'Stored only on this device. Routines & prejac cadence live in the Routines tab now.'));
+  dm.append(el('div',{class:'faint tiny', style:'margin-top:8px'},'Stored only on this device. Routines and their cadence live in the Routines tab.'));
   app.append(dm);
 
   const bind=(id,fn)=>{ const e=$('#'+id); if(e) e.addEventListener('change',()=>{ fn(e.value); save(); refreshCalc(); render(); }); };
-  bind('s_user',v=>S.user=v.trim()||'Kyle'); bind('s_asst',v=>S.assistant=v.trim()||'Jarvis');
+  bind('s_user',v=>S.user=v.trim()||'there'); bind('s_asst',v=>S.assistant=v.trim()||'Jarvis');
   bind('s_ws',v=>S.workStart=v); bind('s_we',v=>S.workEnd=v);
   bind('s_drive',v=>S.driveMin=+v||0); bind('s_morn',v=>S.morningMin=+v||0);
   bind('s_sleep',v=>S.sleepGoalH=+v||8); bind('s_wake',v=>S.wakeOverride=v);
@@ -970,7 +963,7 @@ function onboard(){
   ], ()=>{
     S.wakeOverride=$('#o_wake').value;
     const h=$('#o_home').value; if(h) S.workEnd=fmt24(parseHM(h)-S.driveMin);
-    S.user=$('#o_name').value.trim()||'Kyle';
+    S.user=$('#o_name').value.trim()||'there';
     S.onboarded=true; save(); render(); return true;
   });
 }
