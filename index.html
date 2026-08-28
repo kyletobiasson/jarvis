@@ -236,9 +236,21 @@ function migrate(s){
   if(s.water){ s.counters.water = Object.assign({}, s.counters.water, s.water); delete s.water; }
   for(const k in s.week) if(s.week[k]==='edmontask') s.week[k]='project';
   s.projects = (s.projects||[]).map(p=>{ const q=Object.assign({
-    id:uid(), name:'', deadline:'', unitLabel:'session', total:1, done:0, perSession:1, minPerSession:45, priority:'normal', notes:'', subs:[], stages:[], pinned:false, archived:false, lastWorked:''
+    id:uid(), name:'', deadline:'', unitLabel:'task', perSession:2, minPerSession:45, priority:'normal', notes:'', subs:[], parts:[], pinned:false, archived:false, lastWorked:''
   }, p); delete q.active;
-    q.stages=(q.stages||[]).map(s=>Object.assign({id:uid(), name:'', total:1, done:0, deadline:'', complete:false}, s));
+    const src = q.parts && q.parts.length ? q.parts : (q.stages||[]);
+    q.parts = src.map(s=>{
+      let subs = (s.subs && s.subs.length) ? s.subs.map(x=>({text:x.text||'', done:!!x.done}))
+        : ((+s.total||0) > 1 ? Array.from({length:+s.total},(_,i)=>({text:'Step '+(i+1), done:i<(+s.done||0)}))
+        : [{text:s.name||'Complete', done:!!s.complete}]);
+      return {id:s.id||uid(), name:s.name||'', deadline:s.deadline||'', complete:!!s.complete, subs};
+    });
+    if(!q.parts.length && (!q.subs || !q.subs.length) && (+p.total||0) > 1){
+      const lbl=(p.unitLabel||'Item').replace(/s$/i,'');
+      q.subs = Array.from({length:+p.total},(_,i)=>({text:lbl+' '+(i+1), done:i<(+p.done||0)}));
+    }
+    q.subs = (q.subs||[]).map(x=>({text:x.text||'', done:!!x.done}));
+    delete q.stages; delete q.total; delete q.done; delete q.unitLabel;
     return q; });
   s.routines = (s.routines||[]).map(r=>Object.assign({
     id:uid(), name:'', hint:'', cadence:{type:'daily'}, slot:'evening', priority:'normal', skipRest:false, lock:'', kind:'check', goal:1, oz:0
@@ -472,21 +484,23 @@ function eventsOn(iso){ return S.events.filter(e=>e.date===iso).sort((a,b)=>(a.t
 function eveningCommitment(iso){ return eventsOn(iso).some(e=> !e.time || parseHM(e.time) >= 16*60); }
 
 /* ---------- projects / scheduler ---------- */
-// A project is either flat, or broken into stages. curr() is the thing to work on now.
-function hasStages(p){ return p.stages && p.stages.length>0; }
+// Every project is a to-do list, optionally split into ordered Parts (each its own list).
+// curr() is the list to work on now: the first unfinished Part, or the project itself.
+function hasParts(p){ return p.parts && p.parts.length>0; }
 function curr(p){
-  if(hasStages(p)) return p.stages.find(s=>!s.complete) || p.stages[p.stages.length-1];
+  if(hasParts(p)) return p.parts.find(s=>!s.complete) || p.parts[p.parts.length-1];
   return p;
 }
 function deadlineOf(p){ return curr(p).deadline || p.deadline || ''; }
-function pDone(p){ const c=curr(p); return (c.subs&&c.subs.length) ? c.subs.filter(s=>s.done).length : (+c.done||0); }
-function pTotal(p){ const c=curr(p); return (c.subs&&c.subs.length) ? Math.max(+c.total||0, c.subs.length) : (+c.total||0); }
+function pDone(p){ return (curr(p).subs||[]).filter(s=>s.done).length; }
+function pTotal(p){ return (curr(p).subs||[]).length; }
 function pRemaining(p){ return Math.max(0, pTotal(p) - pDone(p)); }
-function projRemaining(p){ return hasStages(p) ? p.stages.filter(s=>!s.complete).reduce((t,s)=>t+Math.max(0,(+s.total||0)-(+s.done||0)),0) : pRemaining(p); }
-function projLive(p){ return !p.archived && (hasStages(p) ? p.stages.some(s=>!s.complete) : pRemaining(p)>0); }
-function unit(p,n){ const u=p.unitLabel||'session'; if(Math.abs(n)===1 || /s$/i.test(u)) return u; return u+'s'; }
-function perSessionOf(p){ return Math.max(1, +(curr(p).perSession || p.perSession) || 1); }
-function minPerSessionOf(p){ return +(curr(p).minPerSession || p.minPerSession) || 45; }
+function projRemaining(p){ return hasParts(p) ? p.parts.filter(s=>!s.complete).reduce((t,s)=>t+(s.subs||[]).filter(x=>!x.done).length,0) : pRemaining(p); }
+function projTotal(p){ return hasParts(p) ? p.parts.reduce((t,s)=>t+(s.subs||[]).length,0) : pTotal(p); }
+function projLive(p){ return !p.archived && (hasParts(p) ? p.parts.some(s=>!s.complete) : pRemaining(p)>0); }
+function unit(p,n){ return Math.abs(n)===1 ? 'task' : 'tasks'; }
+function perSessionOf(p){ return Math.max(1, +p.perSession || 2); }
+function minPerSessionOf(p){ return +p.minPerSession || 45; }
 function liveProjects(){ return S.projects.filter(projLive); }
 function focusNightsPerWeek(){ return [0,1,2,3,4,5,6].filter(d=>weekMode(d)==='project').length || 3; }
 
@@ -514,10 +528,10 @@ function amountFor(s){
   if(s.need!=null) amt=Math.max(s.per, Math.round(s.need));
   return Math.max(1, Math.min(amt, s.per*2));   // never suggest more than 2 sessions' worth in one night
 }
-// remaining work as an ordered list of stages ({name, remaining, deadline})
-function workStages(p){
-  if(hasStages(p)) return p.stages.filter(s=>!s.complete).map(s=>({
-    name:s.name, remaining:Math.max(0,(+s.total||0)-(+s.done||0)), deadline:s.deadline||p.deadline||'' }));
+// remaining work as an ordered list of parts ({name, remaining, deadline})
+function workParts(p){
+  if(hasParts(p)) return p.parts.filter(s=>!s.complete).map(s=>({
+    name:s.name, remaining:(s.subs||[]).filter(x=>!x.done).length, deadline:s.deadline||p.deadline||'' }));
   return [{name:'', remaining:pRemaining(p), deadline:p.deadline||''}];
 }
 function pickFocus(iso){
@@ -525,24 +539,24 @@ function pickFocus(iso){
   if(!cands.length) return null;
   const fnpw=focusNightsPerWeek();
   const fpj=focusProject();
-  const base = fpj ? [fpj] : (cands.filter(p=>p.pinned).length?cands.filter(p=>p.pinned):cands);
+  const base = fpj ? [fpj] : cands;
   const pool=base.map(p=>({p, deadline:deadlineOf(p), remaining:pRemaining(p), per:perSessionOf(p), priority:p.priority, lastWorked:p.lastWorked||''}));
   pool.sort((a,b)=>cmp(a,b,iso,fnpw));
   const win=pool[0], s=score(win,iso,fnpw);
   const amount=Math.min(win.remaining, amountFor(s));
-  const st = hasStages(win.p) ? curr(win.p) : null;
+  const st = hasParts(win.p) ? curr(win.p) : null;
   let status;
   if(s.daysLeft!=null&&s.daysLeft<=0) status={cls:'over', txt:'past its deadline — do what you can'};
   else if(!win.deadline) status={cls:'', txt:`steady pace · ${win.remaining} ${unit(win.p,win.remaining)} left · add a deadline for real pacing`};
   else if(s.pressure>1.25) status={cls:'soon', txt:`behind — ${amount} ${unit(win.p,amount)} tonight to catch up · ${s.fnl} focus nights to deadline`};
   else if(s.pressure<0.7) status={cls:'ok', txt:`ahead — ${win.remaining} left over ~${s.fnl} focus nights`};
   else status={cls:'', txt:`on pace — ${win.remaining} ${unit(win.p,win.remaining)} over ~${s.fnl} focus nights`};
-  return {project:win.p, stage:st, amount, status, feas:feasibility(win.p)};
+  return {project:win.p, part:st, amount, status, feas:feasibility(win.p)};
 }
 
 let _simKey='', _simCache=null;
 function simFinishes(){
-  const key=JSON.stringify(S.projects.map(p=>[p.id,p.archived,p.priority,p.pinned,p.perSession,workStages(p)]))
+  const key=JSON.stringify(S.projects.map(p=>[p.id,p.archived,p.priority,p.pinned,p.perSession,workParts(p)]))
     +JSON.stringify(S.week)+JSON.stringify(S.events)+JSON.stringify(S.focus||0);
   if(_simKey===key) return _simCache;
   _simKey=key; _simCache=buildProjection(150).finishes;
@@ -552,20 +566,20 @@ function feasibility(p){
   if(!deadlineOf(p)) return null;
   const f=(simFinishes()||[]).find(x=>x.id===p.id);
   if(!f) return null;
-  const target = f.stageFinish || f.finish;        // active stage's projected completion
+  const target = f.partFinish || f.finish;         // active part's projected completion
   const dl = deadlineOf(p);
   const ok = target && target<=dl;
-  return {ok, finish:target, late: target? Math.max(0, daysBetween(dl, target)) : null, staged:hasStages(p), stageName: hasStages(p)?curr(p).name:'' };
+  return {ok, finish:target, late: target? Math.max(0, daysBetween(dl, target)) : null, parted:hasParts(p), partName: hasParts(p)?curr(p).name:'' };
 }
 
 function buildProjection(days){
   const fnpw=focusNightsPerWeek();
   const fpid = focusProject() ? S.focus.id : null;
   const sim=liveProjects().map(p=>({
-    p, stages:workStages(p), si:0, per:perSessionOf(p), minPer:minPerSessionOf(p),
-    priority:p.priority, pinned:p.pinned, focus:p.id===fpid, lastWorked:p.lastWorked||'', finish:null, stageFinish:null
+    p, parts:workParts(p), si:0, per:perSessionOf(p), minPer:minPerSessionOf(p),
+    priority:p.priority, focus:p.id===fpid, lastWorked:p.lastWorked||'', finish:null, partFinish:null
   }));
-  const left=s=>s.stages.slice(s.si).reduce((t,x)=>t+Math.max(0,x.remaining),0);
+  const left=s=>s.parts.slice(s.si).reduce((t,x)=>t+Math.max(0,x.remaining),0);
   const out=[];
   for(let i=0;i<days;i++){
     const iso=addDays(todayISO(), i);
@@ -574,29 +588,29 @@ function buildProjection(days){
     const blocked=evs.some(e=>!e.time||parseHM(e.time)>=16*60);
     const day={iso, dow, mode, events:evs.map(e=>e.title), focus:null};
     if(mode==='project' && !blocked){
-      const active=sim.filter(s=> s.si<s.stages.length && left(s)>0);
+      const active=sim.filter(s=> s.si<s.parts.length && left(s)>0);
       const fp=active.filter(s=>s.focus);
-      const pool=(fp.length?fp : (active.filter(s=>s.pinned).length?active.filter(s=>s.pinned):active));
+      const pool=(fp.length?fp:active);
       if(pool.length){
-        pool.forEach(s=>{ s._o={deadline:s.stages[s.si].deadline, remaining:s.stages[s.si].remaining, per:s.per, priority:s.priority, lastWorked:s.lastWorked}; });
+        pool.forEach(s=>{ s._o={deadline:s.parts[s.si].deadline, remaining:s.parts[s.si].remaining, per:s.per, priority:s.priority, lastWorked:s.lastWorked}; });
         pool.sort((a,b)=>cmp(a._o,b._o,iso,fnpw));
         const w=pool[0], sc=score(w._o,iso,fnpw);
         const amt=Math.max(1, Math.min(w._o.remaining, amountFor(sc)));
-        w.stages[w.si].remaining-=amt; w.lastWorked=iso;
+        w.parts[w.si].remaining-=amt; w.lastWorked=iso;
         let doneNote='';
-        if(w.stages[w.si].remaining<=0){
-          if(w.si===0 && !w.stageFinish) w.stageFinish=iso;
-          const finishedStage=w.stages[w.si].name; w.si++;
-          if(w.si>=w.stages.length){ if(!w.finish) w.finish=iso; doneNote=' — done ✓'; }
-          else if(finishedStage) doneNote=` — “${finishedStage}” done`;
+        if(w.parts[w.si].remaining<=0){
+          if(w.si===0 && !w.partFinish) w.partFinish=iso;
+          const finishedPart=w.parts[w.si].name; w.si++;
+          if(w.si>=w.parts.length){ if(!w.finish) w.finish=iso; doneNote=' — done ✓'; }
+          else if(finishedPart) doneNote=` — “${finishedPart}” done`;
         }
-        day.focus={name:w.p.name, stage:(hasStages(w.p)&&w.stages[Math.min(w.si,w.stages.length-1)])?w.stages[Math.min(w.si,w.stages.length-1)].name:'',
+        day.focus={name:w.p.name, part:(hasParts(w.p)&&w.parts[Math.min(w.si,w.parts.length-1)])?w.parts[Math.min(w.si,w.parts.length-1)].name:'',
           amount:amt, unit:unit(w.p,amt), note:doneNote, mins:w.minPer*(amt/Math.max(1,w.per))};
       }
     }
     out.push(day);
   }
-  const finishes=sim.map(s=>({id:s.p.id, name:s.p.name, deadline:s.stages[0]?s.stages[0].deadline:'', finish:s.finish, stageFinish:s.stageFinish, remaining:left(s)}));
+  const finishes=sim.map(s=>({id:s.p.id, name:s.p.name, deadline:s.parts[0]?s.parts[0].deadline:'', finish:s.finish, partFinish:s.partFinish, remaining:left(s)}));
   return {out, finishes};
 }
 
@@ -658,7 +672,7 @@ function viewToday(app){
   // focus mode banner
   const fpj=focusProject();
   if(fpj){
-    const rem=projRemaining(fpj), tot=hasStages(fpj)?fpj.stages.reduce((t,s)=>t+(+s.total||0),0):pTotal(fpj);
+    const rem=projRemaining(fpj), tot=projTotal(fpj);
     const f=feasibility(fpj);
     const b=el('div',{class:'focusbanner', onclick:()=>go('projects')});
     b.append(el('div',{class:'ttl'}, [ '\u{1f3af} Focus: '+fpj.name ]));
@@ -786,17 +800,20 @@ function taskRow(iso, r){
   return row;
 }
 
+function afterProgress(p, iso){
+  const c=curr(p);
+  if(hasParts(p) && c!==p && (c.subs||[]).every(x=>x.done) && !c.complete){
+    c.complete=true;
+    const dn=p.parts.filter(s=>s.complete).length;
+    if(dn<p.parts.length) award(250,'Part done: '+c.name, {cele:{kicker:'Part complete', big:'“'+c.name+'” done', sub:`${p.name} · ${dn} of ${p.parts.length} parts`}});
+  }
+}
 function logWork(p, amount, iso){
   const c=curr(p), wasLive=projLive(p);
-  if(c.subs && c.subs.length){ let k=amount; for(const s of c.subs){ if(k<=0)break; if(!s.done){ s.done=true; k--; award(50,'Step: '+s.text); } } }
-  else c.done=Math.min(pTotal(p), (+c.done||0)+amount);
+  let k=amount; for(const s of c.subs){ if(k<=0)break; if(!s.done){ s.done=true; k--; } }
   p.lastWorked=iso;
   award(Math.round(minPerSessionOf(p)*(amount/perSessionOf(p))), p.name+' — session');
-  if(hasStages(p) && c!==p && pRemaining(p)===0 && !c.complete){
-    c.complete=true;
-    const dn=p.stages.filter(s=>s.complete).length;
-    award(250,'Stage done: '+c.name, {cele:{kicker:'Stage complete', big:'“'+c.name+'” done', sub:`${p.name} · ${dn} of ${p.stages.length} stages`}});
-  }
+  afterProgress(p, iso);
   if(wasLive && !projLive(p)){
     p.archived=true;
     if(S.focus && S.focus.id===p.id) S.focus=null;
@@ -806,14 +823,14 @@ function logWork(p, amount, iso){
   save(); render(); flushCele();
 }
 function autoFocusCard(fp, iso){
-  const p=fp.project, st=fp.stage;
+  const p=fp.project, st=fp.part, cw=curr(p);
   const c=el('div',{class:'card focuscard'});
   const done=isDone(iso,'focus');
   const head=el('div',{class:'row tap'+(done?' done':''), style:'border:0;background:none;padding:4px 0;margin:0'});
   head.append(el('div',{class:'box', html:CHECK}));
   head.append(el('div',{class:'tx'},[
     el('div',{class:'t'}, p.name),
-    el('div',{class:'d'}, `${st?st.name+' · ':''}tonight: ${fp.amount} ${unit(p,fp.amount)} · ~${fmtDur(minPerSessionOf(p) * (fp.amount/perSessionOf(p)))}`),
+    el('div',{class:'d'}, `${st&&st.name?st.name+' · ':''}${fp.amount} ${unit(p,fp.amount)} tonight · ~${fmtDur(minPerSessionOf(p) * (fp.amount/perSessionOf(p)))}`),
   ]));
   head.addEventListener('click',()=>toggle(iso,'focus'));
   c.append(head);
@@ -825,53 +842,56 @@ function autoFocusCard(fp, iso){
   if(meta.children.length) c.append(meta);
   c.append(el('div',{class:'muted tiny', style:'margin-top:6px'}, fp.status.txt));
   if(fp.feas && !fp.feas.ok) c.append(el('div',{class:'tiny', style:'margin-top:4px;color:var(--bad)'},
-    `⚠ ${fp.feas.finish?`${fp.feas.staged?`“${fp.feas.stageName}” `:''}won’t make its deadline — projected ${dstr(fp.feas.finish)}`:'won’t finish at this pace'}. Raise per-session, add focus nights, or move the date.`));
+    `⚠ ${fp.feas.finish?`${fp.feas.parted&&fp.feas.partName?`“${fp.feas.partName}” `:''}won’t make its deadline — projected ${dstr(fp.feas.finish)}`:'won’t finish at this pace'}. Do more per session, add focus nights, or move the date.`));
 
-  if(hasStages(p)) c.append(stageStrip(p));
+  if(hasParts(p)) c.append(partStrip(p));
   c.append(el('div',{class:'bar'},[ el('i',{style:`width:${pTotal(p)?Math.round(pDone(p)/pTotal(p)*100):0}%`}) ]));
-  c.append(el('div',{class:'faint tiny', style:'margin-top:4px'}, `${pDone(p)} of ${pTotal(p)} ${unit(p,pTotal(p))}${st?' in this stage':''}`));
+  c.append(el('div',{class:'faint tiny', style:'margin-top:4px'}, `${pDone(p)} of ${pTotal(p)} done${st&&st.name?` in “${st.name}”`:''}`));
 
-  const cw=curr(p);
-  if(cw.subs && cw.subs.length){
-    const list=el('div',{class:'sub-list'});
-    cw.subs.slice().sort((a,b)=>a.done-b.done).slice(0,6).forEach(s=>{
-      const sr=el('div',{class:'sub'+(s.done?' done':'')});
-      sr.append(el('div',{class:'box', html:CHECK}));
-      sr.append(el('div',{class:'s'}, s.text));
-      sr.addEventListener('click',()=>{
-        const wasLive=projLive(p);
-        s.done=!s.done; p.lastWorked=iso;
-        if(s.done) award(50,'Step: '+s.text); else award(-50,'Step: '+s.text);
-        if(hasStages(p)&&pRemaining(p)===0&&!cw.complete){ cw.complete=true; const dn=p.stages.filter(x=>x.complete).length;
-          award(250,'Stage done: '+cw.name,{cele:{kicker:'Stage complete', big:'“'+cw.name+'” done', sub:`${p.name} · ${dn} of ${p.stages.length} stages`}}); }
-        if(wasLive&&!projLive(p)){ p.archived=true; if(S.focus&&S.focus.id===p.id)S.focus=null;
-          award(500,'Project done: '+p.name,{cele:{kicker:'Project complete', big:p.name, sub:'Done. Off your plate for good.'}}); }
-        checkDayCleared(iso); save(); render(); flushCele();
-      });
-      list.append(sr);
+  const list=el('div',{class:'sub-list'});
+  cw.subs.slice().sort((a,b)=>a.done-b.done).forEach(s=>{
+    const sr=el('div',{class:'sub'+(s.done?' done':'')});
+    sr.append(el('div',{class:'box', html:CHECK}));
+    sr.append(el('div',{class:'s'}, s.text));
+    sr.addEventListener('click',()=>{
+      const wasLive=projLive(p);
+      s.done=!s.done; p.lastWorked=iso;
+      award(s.done?50:-50, s.text);
+      afterProgress(p, iso);
+      if(wasLive&&!projLive(p)){ p.archived=true; if(S.focus&&S.focus.id===p.id)S.focus=null;
+        award(500,'Project done: '+p.name,{cele:{kicker:'Project complete', big:p.name, sub:'Done. Off your plate for good.'}}); }
+      checkDayCleared(iso); save(); render(); flushCele();
     });
-    c.append(list);
-  } else {
-    c.append(el('div',{class:'stepper'},[
-      el('button',{onclick:()=>{ cw.done=Math.max(0,(+cw.done||0)-1); save(); render(); }},'−'),
-      el('div',{class:'val'}, `${pDone(p)} / ${pTotal(p)}`),
-      el('button',{onclick:()=>logWork(p,1,iso)},'+'),
-    ]));
-  }
+    list.append(sr);
+  });
+  c.append(list);
+
   c.append(el('button',{class:'btn primary sm block', style:'margin-top:12px',
     onclick:()=>{ dayChecks(iso).focus=true; justTapId='focus'; logWork(p, fp.amount, iso); }},
     `Log tonight’s ${fp.amount} ${unit(p,fp.amount)} done`));
   return c;
 }
-function stageStrip(p){
+function partStrip(p){
   const w=el('div',{class:'stagestrip'});
-  p.stages.forEach(s=>{
+  const parts=p.parts, ci=parts.findIndex(s=>s===curr(p));
+  const doneN=parts.filter(s=>s.complete).length;
+  let shown=parts;
+  if(parts.length>6){
+    const from=Math.max(0, Math.min(ci-1, parts.length-5));
+    shown=parts.slice(from, from+5);
+    if(from>0) w.append(el('div',{class:'stg done'}, [ el('span',{class:'stgdot'},'✓'), el('span',{}, `${from} done`) ]));
+  }
+  shown.forEach(s=>{
     const state = s.complete ? 'done' : (s===curr(p) ? 'active' : 'up');
+    const dn=(s.subs||[]).filter(x=>x.done).length, tt=(s.subs||[]).length;
     w.append(el('div',{class:'stg '+state}, [
       el('span',{class:'stgdot'}, s.complete?'✓':(state==='active'?'▸':'')),
-      el('span',{}, s.name),
+      el('span',{style:'flex:1'}, s.name),
+      el('span',{class:'tiny'}, s.complete?'':`${dn}/${tt}`),
     ]));
   });
+  const tailFrom = shown.length && parts.indexOf(shown[shown.length-1])+1;
+  if(tailFrom && tailFrom<parts.length) w.append(el('div',{class:'stg up'}, [ el('span',{class:'stgdot'},''), el('span',{}, `+${parts.length-tailFrom} more`) ]));
   return w;
 }
 function deadlineTag(d){
@@ -914,13 +934,14 @@ function projectCard(p, iso, isNext){
   if(feas && !feas.ok) tags.append(el('span',{class:'badge over'},'behind deadline'));
   if(tags.children.length) c.append(tags);
   if(p.notes) c.append(el('div',{class:'muted tiny', style:'margin-top:8px;white-space:pre-wrap'}, p.notes));
-  if(hasStages(p)){
-    c.append(stageStrip(p));
-    const dn=p.stages.filter(s=>s.complete).length;
-    c.append(el('div',{class:'faint tiny', style:'margin-top:6px'}, `${dn} / ${p.stages.length} stages${!p.archived?` · ${curr(p).name}: ${pDone(p)}/${pTotal(p)} ${unit(p,pTotal(p))}`:''}`+(feas&&feas.finish?` · ${curr(p).name} projected ${dstr(feas.finish)}`:'')));
+  const pt=projTotal(p), pdAll=pt-projRemaining(p);
+  c.append(el('div',{class:'bar'},[ el('i',{style:`width:${pt?Math.round(pdAll/pt*100):0}%`}) ]));
+  if(hasParts(p)){
+    c.append(partStrip(p));
+    const dn=p.parts.filter(s=>s.complete).length;
+    c.append(el('div',{class:'faint tiny', style:'margin-top:6px'}, `${dn} / ${p.parts.length} parts done${!p.archived?` · on “${curr(p).name}”`:''}`+(feas&&feas.finish?` · projected ${dstr(feas.finish)}`:'')));
   } else {
-    c.append(el('div',{class:'bar'},[ el('i',{style:`width:${pTotal(p)?Math.round(pDone(p)/pTotal(p)*100):0}%`}) ]));
-    c.append(el('div',{class:'faint tiny', style:'margin-top:4px'}, `${pDone(p)} / ${pTotal(p)} ${unit(p,pTotal(p))}`+(feas&&feas.finish?` · projected done ${dstr(feas.finish)}`:'')));
+    c.append(el('div',{class:'faint tiny', style:'margin-top:4px'}, `${pDone(p)} / ${pTotal(p)} done`+(feas&&feas.finish?` · projected ${dstr(feas.finish)}`:'')));
   }
   const act=el('div',{class:'row-actions'});
   if(!p.archived){
@@ -948,83 +969,101 @@ function chooseFocus(p){
     return true;
   });
 }
+function todosToText(subs){ return (subs||[]).map(s=>(s.done?'x ':'')+s.text).join('\n'); }
+function textToTodos(t){ return (t||'').split('\n').map(l=>l.trim()).filter(Boolean).map(l=>({text:l.replace(/^x\s+/i,''), done:/^x\s+/i.test(l)})); }
+
 function editProject(p){
   const isNew=!p;
-  p = p || {id:uid(), name:'', deadline:'', unitLabel:'session', total:1, done:0, perSession:1, minPerSession:45, priority:'normal', notes:'', subs:[], stages:[], pinned:false, archived:false, lastWorked:''};
-  let prio=p.priority;
-  let mode = hasStages(p) ? 'stages' : 'simple';
-  let stg = (p.stages||[]).map(s=>({...s}));
-  let subsText=(p.subs||[]).map(s=>(s.done?'x ':'')+s.text).join('\n');
-
+  p = p || {id:uid(), name:'', deadline:'', perSession:2, minPerSession:45, priority:'normal', notes:'', subs:[], parts:[], pinned:false, archived:false, lastWorked:''};
+  const D={
+    name:p.name, prio:p.priority, notes:p.notes||'',
+    per:p.perSession||2, min:p.minPerSession||45,
+    mode: hasParts(p) ? 'parts' : 'flat',
+    deadline:p.deadline||'',
+    flatText: todosToText(p.subs),
+    tmpl:'',
+    parts:(p.parts||[]).map(s=>({id:s.id, name:s.name, deadline:s.deadline||'', complete:!!s.complete, text:todosToText(s.subs), open:false})),
+    genBase:'Episode', genN:9,
+  };
   const bodyBox=el('div',{});
-  function grabShared(){
-    if($('#p_unit')) p.unitLabel=$('#p_unit').value;
-    if($('#p_per')) p.perSession=Math.max(1,+$('#p_per').value||1);
-    if($('#p_min')) p.minPerSession=Math.max(5,+$('#p_min').value||45);
-    if($('#p_total')) p.total=Math.max(1,+$('#p_total').value||1);
-    if($('#p_done')) p.done=Math.max(0,+$('#p_done').value||0);
-    if($('#p_dl')) p.deadline=$('#p_dl').value;
-    if($('#p_subs')) subsText=$('#p_subs').value;
+  function grab(){
+    if($('#p_per')) D.per=Math.max(1,+$('#p_per').value||2);
+    if($('#p_min')) D.min=Math.max(5,+$('#p_min').value||45);
+    if($('#p_dl')) D.deadline=$('#p_dl').value;
+    if($('#p_flat')) D.flatText=$('#p_flat').value;
+    if($('#p_tmpl')) D.tmpl=$('#p_tmpl').value;
+    D.parts.forEach(pt=>{ const t=document.getElementById('pt_t_'+pt.id); if(t) pt.text=t.value; });
   }
   function drawBody(){
-    bodyBox.innerHTML='';
-    bodyBox.append(field('Unit name (singular)', `<input id="p_unit" value="${esc(p.unitLabel||'session')}" placeholder="episode / scene / pass">`));
+    grab(); bodyBox.innerHTML='';
     bodyBox.append(el('div',{class:'grid2'},[
-      field('Per work session', `<input id="p_per" type="number" min="1" value="${p.perSession||1}">`),
-      field('Minutes a session takes', `<input id="p_min" type="number" min="5" step="5" value="${p.minPerSession||45}">`),
+      field('To-dos per work session', `<input id="p_per" type="number" min="1" value="${D.per}">`),
+      field('Minutes a session takes', `<input id="p_min" type="number" min="5" step="5" value="${D.min}">`),
     ]));
-    if(mode==='simple'){
-      bodyBox.append(el('div',{class:'grid2'},[
-        field('How many total?', `<input id="p_total" type="number" min="1" value="${p.total||1}">`),
-        field('Already done', `<input id="p_done" type="number" min="0" value="${p.done||0}">`),
-      ]));
-      bodyBox.append(field('Deadline (optional)', `<input id="p_dl" type="date" value="${p.deadline||''}">`));
-      bodyBox.append(field('Steps (optional, one per line — tracks progress)', `<textarea id="p_subs" placeholder="Act 1 pass\nAct 2 pass">${esc(subsText)}</textarea>`));
+    if(D.mode==='flat'){
+      bodyBox.append(field('Deadline (optional)', `<input id="p_dl" type="date" value="${D.deadline}">`));
+      bodyBox.append(field('To-dos — one per line', `<textarea id="p_flat" style="min-height:120px" placeholder="Draft outline\nWrite section 1\nEdit\nPublish">${esc(D.flatText)}</textarea>`));
     } else {
-      bodyBox.append(el('div',{class:'lab', style:'margin-top:12px'}, 'Stages, in order. The first unfinished one is what Jarvis schedules.'));
-      const list=el('div',{});
-      function drawList(){
-        list.innerHTML='';
-        stg.forEach((s,i)=>{
-          const row=el('div',{class:'stagerow'});
-          row.append(el('input',{value:s.name||'', placeholder:`Stage ${i+1}`, oninput:e=>s.name=e.target.value}));
-          row.append(el('input',{type:'number', min:'1', value:s.total||1, title:'count', style:'max-width:56px;text-align:center', oninput:e=>s.total=Math.max(1,+e.target.value||1)}));
-          row.append(el('input',{type:'date', value:s.deadline||'', style:'max-width:135px', oninput:e=>s.deadline=e.target.value}));
-          row.append(el('button',{class:'del', onclick:()=>{ stg.splice(i,1); drawList(); }},'✕'));
-          list.append(row);
-        });
-        if(!stg.length) list.append(el('div',{class:'empty tiny'},'No stages yet.'));
-      }
-      drawList();
+      bodyBox.append(field('To-do template — copied into each new part', `<textarea id="p_tmpl" placeholder="Import footage\nSync cameras / audio\nSync video\nEdit\nExport">${esc(D.tmpl)}</textarea>`));
+      const gen=el('div',{class:'stagerow', style:'margin-top:8px'});
+      gen.append(el('input',{value:D.genBase, style:'flex:1', oninput:e=>D.genBase=e.target.value}));
+      gen.append(el('input',{type:'number', min:'1', value:D.genN, style:'max-width:56px;text-align:center', oninput:e=>D.genN=Math.max(1,+e.target.value||1)}));
+      gen.append(el('button',{class:'btn sm', onclick:()=>{
+        grab();
+        const tpl=textToTodos(D.tmpl);
+        for(let i=1;i<=D.genN;i++) D.parts.push({id:uid(), name:`${D.genBase} ${i}`, deadline:'', complete:false, text:todosToText(tpl.map(x=>({...x}))), open:false});
+        drawBody();
+      }},'+ Add'));
+      bodyBox.append(labeled('Quick-add numbered parts', gen));
+
+      const list=el('div',{style:'margin-top:10px'});
+      D.parts.forEach((pt,i)=>{
+        const card=el('div',{class:'card', style:'margin:8px 0;padding:10px'});
+        const row=el('div',{class:'stagerow'});
+        row.append(el('input',{value:pt.name, placeholder:`Part ${i+1}`, style:'flex:1', oninput:e=>pt.name=e.target.value}));
+        row.append(el('input',{type:'date', value:pt.deadline, style:'max-width:130px', oninput:e=>pt.deadline=e.target.value}));
+        row.append(el('button',{class:'del', onclick:()=>{ grab(); D.parts.splice(i,1); drawBody(); }},'✕'));
+        card.append(row);
+        const cnt=textToTodos(pt.text);
+        card.append(el('button',{class:'btn ghost sm', style:'margin-top:6px', onclick:()=>{ grab(); pt.open=!pt.open; drawBody(); }},
+          `${pt.open?'▾':'▸'} ${cnt.filter(x=>x.done).length}/${cnt.length} to-dos${pt.complete?' · ✓ complete':''}`));
+        if(pt.open) card.append(el('textarea',{id:'pt_t_'+pt.id, style:'margin-top:6px', placeholder:'Import footage\nEdit\nExport'}, pt.text));
+        list.append(card);
+      });
+      if(!D.parts.length) list.append(el('div',{class:'empty tiny'},'No parts yet — quick-add above, or one at a time.'));
       bodyBox.append(list);
-      bodyBox.append(el('button',{class:'btn sm', style:'margin-top:8px', onclick:()=>{ stg.push({id:uid(), name:'', total:1, done:0, deadline:'', complete:false}); drawList(); }},'+ Add stage'));
+      bodyBox.append(el('button',{class:'btn sm block', onclick:()=>{ grab(); D.parts.push({id:uid(), name:'', deadline:'', complete:false, text:D.tmpl, open:true}); drawBody(); }},'+ Add one part'));
     }
   }
   drawBody();
 
   sheet(isNew?'New project':'Edit project', [
-    field('Name', `<input id="p_name" value="${esc(p.name)}" placeholder="e.g. Website redesign">`),
-    labeled('Priority', segmented(PRIOS, prio, v=>prio=v)),
-    labeled('Structure', segmented([['simple','Simple'],['stages','Stages']], mode, v=>{ grabShared(); mode=v; drawBody(); })),
+    field('Name', `<input id="p_name" value="${esc(D.name)}" placeholder="e.g. Edmontask S3 Live">`),
+    labeled('Priority', segmented(PRIOS, D.prio, v=>D.prio=v)),
+    labeled('Structure', segmented([['flat','One checklist'],['parts','Parts']], D.mode, v=>{ D.mode=v; drawBody(); })),
     bodyBox,
-    field('Notes', `<textarea id="p_notes">${esc(p.notes||'')}</textarea>`),
+    field('Notes', `<textarea id="p_notes">${esc(D.notes)}</textarea>`),
   ], ()=>{
-    p.name=$('#p_name').value.trim(); if(!p.name) return false;
-    p.priority=prio;
-    grabShared();
-    p.unitLabel=(p.unitLabel||'').trim()||'session';
+    D.name=$('#p_name').value.trim(); if(!D.name) return false;
+    grab();
+    p.name=D.name; p.priority=D.prio; p.perSession=D.per; p.minPerSession=D.min;
     p.notes=$('#p_notes').value.trim();
-    if(mode==='simple'){
-      p.stages=[];
-      p.subs=subsText.split('\n').map(l=>l.trim()).filter(Boolean).map(l=>({text:l.replace(/^x\s+/i,''), done:/^x\s+/i.test(l)}));
-      if(p.subs.length) p.total=Math.max(p.total||1, p.subs.length);
+    if(D.mode==='flat'){
+      p.parts=[]; p.deadline=D.deadline;
+      p.subs=textToTodos(D.flatText);
+      if(!p.subs.length) return false;
     } else {
-      const clean=stg.filter(s=>(s.name||'').trim()).map(s=>({id:s.id||uid(), name:s.name.trim(), total:Math.max(1,+s.total||1), done:Math.max(0,+s.done||0), deadline:s.deadline||'', complete:!!s.complete}));
-      if(clean.length){ p.stages=clean; p.subs=[]; } else p.stages=[];
+      const clean=D.parts.filter(pt=>(pt.name||'').trim() || textToTodos(pt.text).length).map(pt=>{
+        const subs=textToTodos(pt.text);
+        return {id:pt.id||uid(), name:(pt.name||'').trim()||'Part', deadline:pt.deadline||'',
+          complete: subs.length ? subs.every(x=>x.done) : !!pt.complete, subs: subs.length?subs:[{text:'Complete', done:!!pt.complete}]};
+      });
+      if(!clean.length) return false;
+      p.parts=clean; p.subs=[];
     }
     if(isNew) S.projects.push(p);
     save(); render(); return true;
-  }, isNew?null:()=>{ S.projects=S.projects.filter(x=>x!==p); save(); closeSheet(); render(); });
+  }, isNew?null:()=>{ S.projects=S.projects.filter(x=>x!==p); if(S.focus&&S.focus.id===p.id)S.focus=null; save(); closeSheet(); render(); });
 }
 
 /* ===== ROUTINES ===== */
@@ -1153,7 +1192,7 @@ function viewPlan(app){
     const row=el('div',{class:'planday'+(day.mode!=='project'||!day.focus?' rest':'')});
     row.append(el('div',{class:'dow'}, day.iso===todayISO()?'Today':new Date(day.iso+'T00:00').toLocaleDateString(undefined,{weekday:'short',month:'numeric',day:'numeric'})));
     let what;
-    if(day.focus) what = `${day.focus.name}${day.focus.stage?` · ${day.focus.stage}`:''} ×${day.focus.amount}${day.focus.mins?` · ${fmtDur(day.focus.mins)}`:''}${day.focus.note||''}`;
+    if(day.focus) what = `${day.focus.name}${day.focus.part?` · ${day.focus.part}`:''} · ${day.focus.amount} ${day.focus.unit}${day.focus.mins?` · ${fmtDur(day.focus.mins)}`:''}${day.focus.note||''}`;
     else if(day.mode==='rest') what='Rest';
     else if(day.mode==='off') what='Off';
     else what='Focus night — open';
@@ -1170,8 +1209,8 @@ function viewPlan(app){
     fc.append(el('h3',{},'Deadlines'));
     fin.forEach(f=>{
       const p=S.projects.find(x=>x.id===f.id);
-      const target = f.stageFinish || f.finish;
-      const label = (p && hasStages(p)) ? `${f.name} · ${curr(p).name}` : f.name;
+      const target = f.partFinish || f.finish;
+      const label = (p && hasParts(p)) ? `${f.name} · ${curr(p).name}` : f.name;
       let msg, cls='color:var(--good)';
       if(!target){ msg='won’t finish at this pace'; cls='color:var(--bad)'; }
       else if(target>f.deadline){ msg=`${daysBetween(f.deadline,target)}d late — ${dstr(target)}`; cls='color:var(--bad)'; }
@@ -1261,13 +1300,13 @@ function viewYou(app){
   app.append(lc);
 
   const projDone=S.projects.filter(p=>p.archived).length;
-  const stagesDone=S.projects.reduce((t,p)=>t+(p.stages||[]).filter(s=>s.complete).length,0);
+  const stagesDone=S.projects.reduce((t,p)=>t+(p.parts||[]).filter(s=>s.complete).length,0);
   const skillHrs=S.skills.reduce((t,k)=>t+skillMinutes(k),0)/60;
   app.append(el('div',{class:'statgrid'},[
     el('div',{class:'s'},[ el('b',{}, '\u{1f525} '+bestStreak()), el('span',{},'best routine streak') ]),
     el('div',{class:'s'},[ el('b',{}, '+'+xpToday()), el('span',{},'XP today') ]),
     el('div',{class:'s'},[ el('b',{}, String(projDone)), el('span',{},projDone===1?'project finished':'projects finished') ]),
-    el('div',{class:'s'},[ el('b',{}, String(stagesDone)), el('span',{},'stages cleared') ]),
+    el('div',{class:'s'},[ el('b',{}, String(stagesDone)), el('span',{},'parts cleared') ]),
     el('div',{class:'s'},[ el('b',{}, skillHrs>=1?skillHrs.toFixed(0)+'h':Math.round(skillHrs*60)+'m'), el('span',{},'skill practice') ]),
     el('div',{class:'s'},[ el('b',{}, String(S.routines.length)), el('span',{},'active routines') ]),
   ]));
@@ -1429,7 +1468,7 @@ function onboard(){
   const dlg=$('#sheet');
   const st={ step:0, name:S.user==='there'?'':S.user, asst:S.assistant, wake:'07:15', home:'17:15',
              routines:new Set(), rc:'', skills:new Set(), sc:'',
-             proj:{name:'', total:'', unit:'', deadline:''} };
+             proj:{name:'', deadline:'', mode:'flat', flatText:'', base:'Episode', n:0, tmpl:''} };
   function chipRow(list, set){
     const w=el('div',{class:'chips'});
     list.forEach(item=>{
@@ -1443,7 +1482,12 @@ function onboard(){
     if(st.step===0){ st.name=$('#w_name').value; st.asst=$('#w_asst').value; st.wake=$('#w_wake').value; st.home=$('#w_home').value; }
     if(st.step===1){ st.rc=$('#w_rc').value; }
     if(st.step===2){ st.sc=$('#w_sc').value; }
-    if(st.step===3){ st.proj={name:$('#w_pn').value.trim(), total:$('#w_pt').value, unit:$('#w_pu').value.trim(), deadline:$('#w_pd').value}; }
+    if(st.step===3){
+      st.proj.name=$('#w_pn').value.trim();
+      if($('#w_pd')) st.proj.deadline=$('#w_pd').value;
+      if($('#w_pf')) st.proj.flatText=$('#w_pf').value;
+      if($('#w_pt')) st.proj.tmpl=$('#w_pt').value;
+    }
   }
   function draw(){
     dlg.innerHTML=''; dlg.style.display='';
@@ -1457,7 +1501,7 @@ function onboard(){
       box.append(field('Wake-up time you’re aiming for', `<input id="w_wake" type="time" value="${st.wake}">`));
       box.append(field('When you get home from work', `<input id="w_home" type="time" value="${st.home}">`));
     } else if(st.step===1){
-      box.append(el('h2',{}, 'What do you do most days?'));
+      box.append(el('h2',{}, 'What would you like to fit into your day?'));
       box.append(el('p',{class:'muted', style:'margin:4px 0 10px'}, 'Tap what fits. Cadence and timing are adjustable later in Routines.'));
       box.append(chipRow(RPRE, st.routines));
       box.append(field('Add your own (comma-separated)', `<input id="w_rc" value="${esc(st.rc)}" placeholder="Duolingo, stretch">`));
@@ -1469,12 +1513,19 @@ function onboard(){
     } else {
       box.append(el('h2',{}, 'A project with a finish line?'));
       box.append(el('p',{class:'muted', style:'margin:4px 0 10px'}, 'Something you’re working toward. Skip if none — add projects anytime.'));
-      box.append(field('Name', `<input id="w_pn" value="${esc(st.proj.name)}" placeholder="Edit the podcast season">`));
-      box.append(el('div',{class:'grid2'},[
-        field('How many parts?', `<input id="w_pt" type="number" min="1" value="${st.proj.total||''}">`),
-        field('Called (singular)', `<input id="w_pu" value="${esc(st.proj.unit)}" placeholder="episode">`),
-      ]));
-      box.append(field('Deadline (optional)', `<input id="w_pd" type="date" value="${st.proj.deadline||''}">`));
+      box.append(field('Name', `<input id="w_pn" value="${esc(st.proj.name)}" placeholder="Edmontask S3 Live">`));
+      box.append(labeled('Structure', segmented([['flat','One checklist'],['parts','Repeating parts']], st.proj.mode, v=>{ capture(); st.proj.mode=v; draw(); })));
+      if(st.proj.mode==='flat'){
+        box.append(field('Deadline (optional)', `<input id="w_pd" type="date" value="${st.proj.deadline||''}">`));
+        box.append(field('To-dos — one per line', `<textarea id="w_pf" style="min-height:110px" placeholder="Draft outline\nWrite it\nEdit\nSend">${esc(st.proj.flatText)}</textarea>`));
+      } else {
+        const g=el('div',{class:'stagerow'});
+        g.append(el('input',{value:st.proj.base, style:'flex:1', placeholder:'Part name', oninput:e=>st.proj.base=e.target.value}));
+        g.append(el('input',{type:'number', min:'1', value:st.proj.n||'', style:'max-width:60px;text-align:center', placeholder:'#', oninput:e=>st.proj.n=Math.max(0,+e.target.value||0)}));
+        box.append(labeled('e.g. “Episode” × 9', g));
+        box.append(field('To-dos for each part — one per line', `<textarea id="w_pt" style="min-height:110px" placeholder="Import footage\nSync cameras / audio\nSync video\nEdit\nExport">${esc(st.proj.tmpl)}</textarea>`));
+        box.append(field('Overall deadline (optional)', `<input id="w_pd" type="date" value="${st.proj.deadline||''}">`));
+      }
     }
     const acts=el('div',{class:'row-actions', style:'margin-top:16px'});
     if(st.step>0) acts.append(el('button',{class:'btn ghost', onclick:()=>{ capture(); st.step--; draw(); }},'Back'));
@@ -1501,8 +1552,17 @@ function onboard(){
     if(slist.length && !S.routines.some(r=>r.kind==='skill'))
       S.routines.push({id:uid(), name:'Practice a skill', hint:'10 minutes — pick one', cadence:{type:'daily'}, slot:'winddown', priority:'low', skipRest:false, lock:'', kind:'skill', goal:1, oz:0});
     if(st.proj && st.proj.name){
-      S.projects.push({id:uid(), name:st.proj.name, deadline:st.proj.deadline||'', unitLabel:st.proj.unit||'part',
-        total:Math.max(1,+st.proj.total||1), done:0, perSession:1, minPerSession:45, priority:'normal', notes:'', subs:[], stages:[], pinned:false, archived:false, lastWorked:''});
+      const base={id:uid(), name:st.proj.name, deadline:st.proj.deadline||'', perSession:2, minPerSession:45,
+        priority:'normal', notes:'', subs:[], parts:[], pinned:false, archived:false, lastWorked:''};
+      if(st.proj.mode==='parts' && st.proj.n>0){
+        const tpl=textToTodos(st.proj.tmpl);
+        for(let i=1;i<=st.proj.n;i++) base.parts.push({id:uid(), name:`${st.proj.base||'Part'} ${i}`, deadline:'', complete:false,
+          subs: tpl.length?tpl.map(x=>({...x})):[{text:'Complete', done:false}]});
+      } else {
+        base.subs = textToTodos(st.proj.flatText);
+        if(!base.subs.length) base.subs=[{text:'Get started', done:false}];
+      }
+      S.projects.push(base);
     }
     S.onboarded=true; save(); closeSheet(); render();
   }
