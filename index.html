@@ -104,6 +104,43 @@
   nav button.on{color:var(--accent)}
   nav svg{width:20px; height:20px}
 
+  /* momentum */
+  .mo{display:flex; gap:10px; align-items:center; margin:12px 0 2px; flex-wrap:wrap}
+  .mo .chip2{display:inline-flex; align-items:center; gap:5px; background:var(--surface-2); border:1px solid var(--line);
+    border-radius:999px; padding:5px 11px; font-size:.82rem; font-weight:650}
+  .mo .chip2.xp{color:var(--accent)} .mo .chip2.streak{color:var(--warn)}
+  .xpbar{height:5px; border-radius:999px; background:var(--surface-2); overflow:hidden; flex:1 1 100%; margin-top:2px}
+  .xpbar>i{display:block; height:100%; background:var(--accent); transition:width .5s cubic-bezier(.2,.8,.2,1)}
+  @keyframes pop{0%{transform:scale(1)}40%{transform:scale(1.28)}100%{transform:scale(1)}}
+  .box.pop{animation:pop .32s ease}
+  @keyframes ringflash{0%{box-shadow:0 0 0 0 var(--good)}100%{box-shadow:0 0 0 14px transparent}}
+  .ring.cleared{animation:ringflash .7s ease-out}
+
+  .focusbanner{background:var(--surface-2); border:1px solid var(--accent);
+    box-shadow:0 0 0 1px var(--accent) inset; border-radius:var(--radius); padding:14px; margin:12px 0}
+  .focusbanner .ttl{font-weight:750; font-size:1.05rem; display:flex; align-items:center; gap:7px}
+  .focusbanner .eta{font-size:.82rem; color:var(--muted); margin-top:3px}
+
+  .celebrate{position:fixed; inset:0; z-index:200; display:grid; place-items:center; background:rgba(6,8,12,.72);
+    backdrop-filter:blur(3px); text-align:center; padding:24px; animation:fade .25s ease}
+  @keyframes fade{from{opacity:0}to{opacity:1}}
+  .celebrate .big{font-size:2.4rem; font-weight:800; letter-spacing:.02em}
+  .celebrate .sub2{color:var(--muted); margin-top:8px; font-size:1rem}
+  .celebrate .kicker{color:var(--accent); font-weight:700; letter-spacing:.14em; font-size:.85rem; text-transform:uppercase}
+  .conf{position:fixed; inset:0; z-index:199; overflow:hidden; pointer-events:none}
+  .conf i{position:absolute; top:-12px; width:9px; height:14px; border-radius:2px; animation:drop linear forwards}
+  @keyframes drop{to{transform:translateY(110vh) rotate(720deg)}}
+
+  .lvlcard{background:var(--surface); border:1px solid var(--line); border-radius:var(--radius); padding:16px; margin:12px 0}
+  .lvlcard .lv{font-size:1.6rem; font-weight:800}
+  .statgrid{display:grid; grid-template-columns:1fr 1fr; gap:10px; margin-top:12px}
+  .statgrid .s{background:var(--surface-2); border:1px solid var(--line); border-radius:12px; padding:11px}
+  .statgrid .s b{display:block; font-size:1.3rem; font-weight:750}
+  .statgrid .s span{font-size:.76rem; color:var(--muted)}
+  .feed div{padding:8px 0; border-bottom:1px solid var(--line); font-size:.86rem; display:flex; justify-content:space-between; gap:10px}
+  .feed div:last-child{border-bottom:0}
+  .feed .amt{color:var(--accent); font-weight:700; white-space:nowrap}
+
   .btn{display:inline-flex; align-items:center; justify-content:center; gap:6px; padding:10px 14px; border-radius:11px;
     border:1px solid var(--line); background:var(--surface-2); font-weight:600; font-size:.9rem}
   .btn.primary{background:var(--accent); border-color:var(--accent); color:var(--accent-ink)}
@@ -182,7 +219,7 @@ const DEFAULTS={
   wakeOverride:'', sleepGoalH:8, workEnd:'17:00',
   week:{0:'project',1:'project',2:'rest',3:'project',4:'rest',5:'off',6:'project'},
   projects:[], routines:[], skills:[], events:[], tasks:[], checks:{}, counters:{},
-  onboarded:false,
+  xp:0, xpLog:[], focus:null, onboarded:false,
 };
 
 let S = load();
@@ -208,6 +245,8 @@ function migrate(s){
   }, r));
   s.tasks = (s.tasks||[]).map(t=>Object.assign({id:uid(), text:'', due:'', priority:'normal', done:false}, t));
   s.skills = (s.skills||[]).map(k=>Object.assign({id:uid(), name:'', createdAt:todayISO(), sessions:[]}, k));
+  s.xp = +s.xp||0; s.xpLog = s.xpLog||[];
+  if(s.focus && !(s.projects||[]).some(p=>p.id===s.focus.id)) s.focus=null;
 }
 let storageBroken=false;
 function save(){
@@ -216,6 +255,64 @@ function save(){
     alert('Jarvis can’t save on this device.\n\nThe page was likely opened as a file (file://) or storage is blocked. It needs to be served over http/https — see the setup notes.'); } }
 }
 function uid(){ return Math.random().toString(36).slice(2,9); }
+
+/* ---------- momentum / XP ---------- */
+function xpCum(n){ return 60*n*n + 40*n; }
+function xpLevel(xp){ let n=0; while(xpCum(n+1) <= xp) n++; return n; }
+function xpProg(xp){ const l=xpLevel(xp), a=xpCum(l), b=xpCum(l+1); return {level:l, into:xp-a, need:b-a, pct:Math.max(0,Math.round((xp-a)/(b-a)*100))}; }
+function xpToday(){ const t=todayISO(); return S.xpLog.filter(e=>e.d===t && e.amt>0).reduce((s,e)=>s+e.amt,0); }
+let _pendingCele=null;
+function award(amt, label, opts){
+  if(!amt) return;
+  const before=xpLevel(S.xp);
+  S.xp=Math.max(0, S.xp + amt);
+  if(amt>0){ S.xpLog.unshift({ts:Date.now(), d:todayISO(), amt, label}); if(S.xpLog.length>250) S.xpLog.length=250; }
+  const after=xpLevel(S.xp);
+  if(opts && opts.cele) _pendingCele=opts.cele;
+  else if(after>before) _pendingCele={kicker:'Level up', big:'Level '+after, sub:levelBlurb(after)};
+}
+function levelBlurb(n){
+  if(n>=15) return 'Genuinely impressive consistency.';
+  if(n>=10) return 'This is a habit now.';
+  if(n>=6) return 'The momentum is real.';
+  if(n>=3) return 'Keep the streak alive.';
+  return 'You’re rolling.';
+}
+function flushCele(){ if(_pendingCele){ const c=_pendingCele; _pendingCele=null; celebrate(c); } }
+function celebrate(o){
+  confetti();
+  const ov=el('div',{class:'celebrate', onclick:()=>ov.remove()}, [ el('div',{},[
+    o.kicker?el('div',{class:'kicker'}, o.kicker):null,
+    el('div',{class:'big'}, o.big),
+    o.sub?el('div',{class:'sub2'}, o.sub):null,
+    el('div',{class:'sub2', style:'margin-top:18px;opacity:.45;font-size:.78rem'}, 'tap to continue'),
+  ]) ]);
+  document.body.append(ov);
+  setTimeout(()=>{ if(ov.isConnected) ov.remove(); }, 6500);
+}
+function confetti(){
+  const c=el('div',{class:'conf'}), cols=['#7aa2ff','#43c59e','#e0b453','#e0685f','#c58aff'];
+  for(let i=0;i<72;i++){ const p=el('i');
+    p.style.left=Math.random()*100+'vw'; p.style.background=cols[i%cols.length];
+    p.style.animationDuration=(1.5+Math.random()*1.7)+'s'; p.style.animationDelay=(Math.random()*.35)+'s';
+    p.style.transform=`rotate(${Math.random()*360}deg)`;
+    c.append(p);
+  }
+  document.body.append(c);
+  setTimeout(()=>c.remove(), 3900);
+}
+
+/* ---------- focus mode ---------- */
+function focusActive(){ return !!(S.focus && S.focus.id && S.projects.some(p=>p.id===S.focus.id && projLive(p))); }
+function focusProject(){ return focusActive() ? S.projects.find(p=>p.id===S.focus.id) : null; }
+function weekMode(dow){
+  const base=S.week[dow];
+  if(!focusActive() || base==='project') return base;
+  const rest=[0,1,2,3,4,5,6].filter(d=>S.week[d]!=='project')
+    .sort((a,b)=>(S.week[a]==='off'?0:1)-(S.week[b]==='off'?0:1));
+  const keep=new Set(rest.slice(0, S.focus.restPerWeek|0));
+  return keep.has(dow) ? base : 'project';
+}
 
 /* ---------- dates ---------- */
 function todayISO(d=new Date()){ return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0'); }
@@ -231,11 +328,53 @@ function asleepMin(){ return wakeMin() - S.sleepGoalH*60; }
 function windDownMin(){ return asleepMin() - 45; }
 
 /* ---------- checks / counters ---------- */
+let justTapId=null;
 function dayChecks(iso){ return S.checks[iso] || (S.checks[iso]={}); }
 function isDone(iso,id){ return !!dayChecks(iso)[id]; }
-function toggle(iso,id){ const d=dayChecks(iso); d[id]?delete d[id]:d[id]=true; prune(); save(); render(); }
+function routineById(id){ return S.routines.find(r=>r.id===id); }
+function checkXp(r){ return r.priority==='must'?12 : r.priority==='low'?6 : 10; }
+function awardForToggle(id, on){
+  let amt=0, label='';
+  const r=routineById(id);
+  if(r){ amt=checkXp(r); label=r.name; }
+  else if(id.indexOf('task:')===0){ amt=15; const t=S.tasks.find(x=>'task:'+x.id===id); label=t?t.text:'Task'; }
+  else if(id==='focus'){ amt=15; label='Tonight’s focus'; }
+  else return;
+  award(on?amt:-amt, label);
+}
+function toggle(iso,id){
+  const d=dayChecks(iso); const on=!d[id];
+  on ? d[id]=true : delete d[id];
+  justTapId=id;
+  awardForToggle(id, on);
+  if(on) checkDayCleared(iso);
+  prune(); save(); render(); flushCele();
+}
 function counterVal(id,iso){ return (S.counters[id]&&S.counters[id][iso])||0; }
-function counterSet(id,iso,n){ (S.counters[id]||(S.counters[id]={}))[iso]=Math.max(0,n); save(); render(); }
+function counterSet(id,iso,n){
+  const before=counterVal(id,iso); n=Math.max(0,n);
+  (S.counters[id]||(S.counters[id]={}))[iso]=n;
+  const r=routineById(id), goal=r?(r.goal||1):1;
+  if(before<goal && n>=goal){ award(10, r?r.name:'Water'); checkDayCleared(iso); }
+  else if(before>=goal && n<goal) award(-10, r?r.name:'Water');
+  save(); render(); flushCele();
+}
+function ringStatus(iso){
+  const dow=new Date(iso+'T00:00').getDay(), mode=weekMode(dow);
+  const nowMin=new Date().getHours()*60+new Date().getMinutes();
+  const out = nowMin>=12*60 && eveningCommitment(iso);
+  const due=S.routines.filter(r=>routineDue(r,iso,mode) && r.slot!=='winddown' && r.priority!=='low');
+  const fp=(mode==='project' && !out) ? pickFocus(iso) : null;
+  const items=[ ...due.map(r=>({done:routineComplete(r,iso)})), ...(fp?[{done:isDone(iso,'focus')}]:[]) ];
+  return {items, allDone: items.length>0 && items.every(i=>i.done)};
+}
+function checkDayCleared(iso){
+  if(iso!==todayISO() || dayChecks(iso).__cleared) return;
+  if(ringStatus(iso).allDone){
+    dayChecks(iso).__cleared=true;
+    award(50, 'Day cleared', {cele:{kicker:'Nice', big:'Day cleared', sub:'Everything that mattered today — done. Go rest.'}});
+  }
+}
 function prune(){
   const cut=addDays(todayISO(),-95);
   for(const k in S.checks) if(k<cut) delete S.checks[k];
@@ -245,6 +384,7 @@ function prune(){
 
 /* ---------- routines ---------- */
 function routineDue(r, iso, mode){
+  if(r.priority==='low' && focusActive()) return false;   // low-priority routines pause during Focus
   if(r.skipRest && (mode==='rest'||mode==='off')) return false;
   const c=r.cadence||{type:'daily'};
   const d=new Date(iso+'T00:00'), dow=d.getDay();
@@ -278,8 +418,12 @@ function skillStreak(k){
 }
 function skillLastPracticed(k){ const ds=(k.sessions||[]).map(s=>s.date).sort(); return ds[ds.length-1]||''; }
 function logSkill(k, min, iso){
-  k.sessions=k.sessions||[]; k.sessions.push({date:iso||todayISO(), min:Math.max(1,Math.round(min||10))});
-  save(); render();
+  k.sessions=k.sessions||[];
+  const m=Math.max(1,Math.round(min||10)), before=skillLevel(k);
+  k.sessions.push({date:iso||todayISO(), min:m});
+  award(m, 'Practiced '+k.name);
+  if(skillLevel(k)>before) _pendingCele={kicker:k.name, big:'Skill Level '+skillLevel(k), sub:'Getting good at this.'};
+  save(); render(); flushCele();
 }
 function logSkillSheet(iso, routineId){
   if(!S.skills.length){
@@ -296,16 +440,17 @@ function logSkillSheet(iso, routineId){
     field('Minutes', numInput(10, v=>mins=v)),
   ], ()=>{
     const k=S.skills.find(x=>x.id===pick); if(!k) return false;
+    if(routineId){ dayChecks(iso)[routineId]=true; justTapId=routineId; }
     logSkill(k, mins, iso);
-    if(routineId) dayChecks(iso)[routineId]=true;
-    save(); render(); return true;
+    if(routineId) checkDayCleared(iso);
+    save(); render(); flushCele(); return true;
   });
 }
 function routineStreak(r){
   let n=0;
   for(let i=0;i<160;i++){
     const d=new Date(); d.setDate(d.getDate()-i);
-    const iso=todayISO(d), mode=S.week[d.getDay()];
+    const iso=todayISO(d), mode=weekMode(d.getDay());
     if(!routineDue(r,iso,mode)) continue;
     if(i===0 && !routineComplete(r,iso)) continue;
     if(routineComplete(r,iso)) n++; else break;
@@ -339,11 +484,11 @@ function pTotal(p){ const c=curr(p); return (c.subs&&c.subs.length) ? Math.max(+
 function pRemaining(p){ return Math.max(0, pTotal(p) - pDone(p)); }
 function projRemaining(p){ return hasStages(p) ? p.stages.filter(s=>!s.complete).reduce((t,s)=>t+Math.max(0,(+s.total||0)-(+s.done||0)),0) : pRemaining(p); }
 function projLive(p){ return !p.archived && (hasStages(p) ? p.stages.some(s=>!s.complete) : pRemaining(p)>0); }
-function unit(p,n){ const u=p.unitLabel||'session'; return Math.abs(n)===1 ? u : u+'s'; }
+function unit(p,n){ const u=p.unitLabel||'session'; if(Math.abs(n)===1 || /s$/i.test(u)) return u; return u+'s'; }
 function perSessionOf(p){ return Math.max(1, +(curr(p).perSession || p.perSession) || 1); }
 function minPerSessionOf(p){ return +(curr(p).minPerSession || p.minPerSession) || 45; }
 function liveProjects(){ return S.projects.filter(projLive); }
-function focusNightsPerWeek(){ return Object.values(S.week).filter(v=>v==='project').length || 3; }
+function focusNightsPerWeek(){ return [0,1,2,3,4,5,6].filter(d=>weekMode(d)==='project').length || 3; }
 
 function score(o, iso, fnpw){
   const per=Math.max(1,o.per||1);
@@ -378,9 +523,10 @@ function workStages(p){
 function pickFocus(iso){
   const cands=liveProjects();
   if(!cands.length) return null;
-  const pinned=cands.filter(p=>p.pinned);
   const fnpw=focusNightsPerWeek();
-  const pool=(pinned.length?pinned:cands).map(p=>({p, deadline:deadlineOf(p), remaining:pRemaining(p), per:perSessionOf(p), priority:p.priority, lastWorked:p.lastWorked||''}));
+  const fpj=focusProject();
+  const base = fpj ? [fpj] : (cands.filter(p=>p.pinned).length?cands.filter(p=>p.pinned):cands);
+  const pool=base.map(p=>({p, deadline:deadlineOf(p), remaining:pRemaining(p), per:perSessionOf(p), priority:p.priority, lastWorked:p.lastWorked||''}));
   pool.sort((a,b)=>cmp(a,b,iso,fnpw));
   const win=pool[0], s=score(win,iso,fnpw);
   const amount=Math.min(win.remaining, amountFor(s));
@@ -396,7 +542,8 @@ function pickFocus(iso){
 
 let _simKey='', _simCache=null;
 function simFinishes(){
-  const key=JSON.stringify(S.projects.map(p=>[p.id,p.archived,p.priority,p.pinned,p.perSession,workStages(p)]))+JSON.stringify(S.week)+JSON.stringify(S.events);
+  const key=JSON.stringify(S.projects.map(p=>[p.id,p.archived,p.priority,p.pinned,p.perSession,workStages(p)]))
+    +JSON.stringify(S.week)+JSON.stringify(S.events)+JSON.stringify(S.focus||0);
   if(_simKey===key) return _simCache;
   _simKey=key; _simCache=buildProjection(150).finishes;
   return _simCache;
@@ -413,21 +560,23 @@ function feasibility(p){
 
 function buildProjection(days){
   const fnpw=focusNightsPerWeek();
+  const fpid = focusProject() ? S.focus.id : null;
   const sim=liveProjects().map(p=>({
     p, stages:workStages(p), si:0, per:perSessionOf(p), minPer:minPerSessionOf(p),
-    priority:p.priority, pinned:p.pinned, lastWorked:p.lastWorked||'', finish:null, stageFinish:null
+    priority:p.priority, pinned:p.pinned, focus:p.id===fpid, lastWorked:p.lastWorked||'', finish:null, stageFinish:null
   }));
   const left=s=>s.stages.slice(s.si).reduce((t,x)=>t+Math.max(0,x.remaining),0);
   const out=[];
   for(let i=0;i<days;i++){
     const iso=addDays(todayISO(), i);
-    const dow=new Date(iso+'T00:00').getDay(), mode=S.week[dow];
+    const dow=new Date(iso+'T00:00').getDay(), mode=weekMode(dow);
     const evs=eventsOn(iso);
     const blocked=evs.some(e=>!e.time||parseHM(e.time)>=16*60);
     const day={iso, dow, mode, events:evs.map(e=>e.title), focus:null};
     if(mode==='project' && !blocked){
       const active=sim.filter(s=> s.si<s.stages.length && left(s)>0);
-      const pool=(active.filter(s=>s.pinned).length?active.filter(s=>s.pinned):active);
+      const fp=active.filter(s=>s.focus);
+      const pool=(fp.length?fp : (active.filter(s=>s.pinned).length?active.filter(s=>s.pinned):active));
       if(pool.length){
         pool.forEach(s=>{ s._o={deadline:s.stages[s.si].deadline, remaining:s.stages[s.si].remaining, per:s.per, priority:s.priority, lastWorked:s.lastWorked}; });
         pool.sort((a,b)=>cmp(a._o,b._o,iso,fnpw));
@@ -458,13 +607,14 @@ const TABS=[
   ['routines','Routines','<path d="M17 2l4 4-4 4"/><path d="M3 11V9a4 4 0 014-4h14"/><path d="M7 22l-4-4 4-4"/><path d="M21 13v2a4 4 0 01-4 4H3"/>'],
   ['skills','Skills','<path d="M3 17l6-6 4 4 8-8"/><path d="M15 7h6v6"/>'],
   ['plan','Plan','<rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/>'],
-  ['settings','Settings','<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 11-2.83 2.83l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 11-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 11-2.83-2.83l.06-.06A1.65 1.65 0 004.6 15a1.65 1.65 0 00-1.51-1H3a2 2 0 110-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 112.83-2.83l.06.06A1.65 1.65 0 009 4.6a1.65 1.65 0 001-1.51V3a2 2 0 114 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 112.83 2.83l-.06.06A1.65 1.65 0 0019.4 9c.14.31.22.65.22 1z"/>'],
+  ['you','You','<circle cx="12" cy="8" r="4"/><path d="M4 21c0-4 3.6-7 8-7s8 3 8 7"/>'],
 ];
 let view='today';
 function buildNav(){
   const n=$('#nav'); n.innerHTML='';
   for(const [id,label,path] of TABS){
-    n.append(el('button',{class:id===view?'on':'', onclick:()=>go(id)},[
+    const on = id===view || (id==='you' && view==='settings');
+    n.append(el('button',{class:on?'on':'', onclick:()=>go(id)},[
       el('span',{html:`<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">${path}</svg>`}),
       label,
     ]));
@@ -474,15 +624,16 @@ function go(v){ view=v; buildNav(); window.scrollTo(0,0); render(); }
 function render(){
   const y=window.scrollY;
   const app=$('#app'); app.innerHTML='';
-  ({today:viewToday,projects:viewProjects,routines:viewRoutines,skills:viewSkills,plan:viewPlan,settings:viewSettings}[view])(app);
+  ({today:viewToday,projects:viewProjects,routines:viewRoutines,skills:viewSkills,plan:viewPlan,you:viewYou,settings:viewSettings}[view]||viewToday)(app);
   app.append(el('div',{class:'foot'}, S.assistant.toUpperCase()));
   window.scrollTo(0,y);
+  setTimeout(()=>{ justTapId=null; }, 380);
 }
 
 /* ===== TODAY ===== */
 function viewToday(app){
   const iso=todayISO(), now=new Date(), nowMin=now.getHours()*60+now.getMinutes();
-  const dow=now.getDay(), mode=S.week[dow];
+  const dow=now.getDay(), mode=weekMode(dow);
   const evening = nowMin>=12*60;
 
   const hero=el('header',{class:'hero'});
@@ -494,6 +645,28 @@ function viewToday(app){
   else { clk.append(pill(`Wind-down <b>${fmtHM(windDownMin())}</b>`, nowMin>=windDownMin()-1)); clk.append(pill(`Lights out <b>${fmtHM(asleepMin())}</b>`, nowMin>=asleepMin()-1)); }
   hero.append(clk);
   app.append(hero);
+
+  // momentum bar
+  const pg=xpProg(S.xp), stk=bestStreak(), today=xpToday();
+  const mo=el('div',{class:'mo'});
+  mo.append(el('span',{class:'chip2 xp', onclick:()=>go('you')}, `⭐ Lv ${pg.level}`));
+  if(stk>1) mo.append(el('span',{class:'chip2 streak'}, `\u{1f525} ${stk}`));
+  if(today>0) mo.append(el('span',{class:'chip2'}, `+${today} today`));
+  mo.append(el('div',{class:'xpbar'},[ el('i',{style:`width:${pg.pct}%`}) ]));
+  app.append(mo);
+
+  // focus mode banner
+  const fpj=focusProject();
+  if(fpj){
+    const rem=projRemaining(fpj), tot=hasStages(fpj)?fpj.stages.reduce((t,s)=>t+(+s.total||0),0):pTotal(fpj);
+    const f=feasibility(fpj);
+    const b=el('div',{class:'focusbanner', onclick:()=>go('projects')});
+    b.append(el('div',{class:'ttl'}, [ '\u{1f3af} Focus: '+fpj.name ]));
+    b.append(el('div',{class:'bar', style:'margin-top:8px'},[ el('i',{style:`width:${tot?Math.round((tot-rem)/tot*100):0}%`}) ]));
+    b.append(el('div',{class:'eta'}, `${tot-rem} of ${tot} ${unit(fpj,tot)}${f&&f.finish?` · on track for ${dstr(f.finish)}`:''} · ${S.focus.restPerWeek} rest ${S.focus.restPerWeek===1?'night':'nights'}/wk`));
+    b.append(el('button',{class:'btn ghost sm', style:'margin-top:8px', onclick:e=>{ e.stopPropagation(); S.focus=null; save(); render(); }},'End focus'));
+    app.append(b);
+  }
 
   const evs=eventsOn(iso);
   const out = evening && eveningCommitment(iso);
@@ -518,10 +691,10 @@ function viewToday(app){
   ];
   const ringDone = ringItems.filter(it=> it._focus ? isDone(iso,'focus') : routineComplete(it,iso)).length;
   const pct = ringItems.length ? Math.round(ringDone/ringItems.length*100) : 0;
-  const ring=el('div',{class:'ring'}); ring.style.setProperty('--p',pct); ring.append(el('span',{},`${pct}%`));
+  const ring=el('div',{class:'ring'+(pct===100&&justTapId?' cleared':'')}); ring.style.setProperty('--p',pct); ring.append(el('span',{},`${pct}%`));
   app.append(el('div',{class:'prog'},[ ring, el('div',{},[
     el('div',{},`${ringDone} of ${ringItems.length} done`),
-    el('div',{class:'faint tiny'}, pct===100?'All wrapped. Go rest.':'One at a time.'),
+    el('div',{class:'faint tiny'}, pct===100?'Day cleared. Go rest.':'One at a time.'),
   ])]));
 
   if(fp) app.append(autoFocusCard(fp, iso));
@@ -570,7 +743,7 @@ function routineRow(iso, r){
   const now=new Date(); const nowMin=now.getHours()*60+now.getMinutes();
   const locked = r.lock && todayISO()===iso && nowMin < parseHM(r.lock);
   const row=el('div',{class:'row tap'+(done?' done':'')+(locked?' locked':'')});
-  row.append(el('div',{class:'box', html:CHECK}));
+  row.append(el('div',{class:'box'+(justTapId===r.id?' pop':''), html:CHECK}));
   const tx=el('div',{class:'tx'});
   tx.append(el('div',{class:'t'}, r.name));
   if(r.hint) tx.append(el('div',{class:'d'}, r.hint));
@@ -603,7 +776,7 @@ function counterRow(iso, r){
 function taskRow(iso, r){
   const done=isDone(iso,r.id);
   const row=el('div',{class:'row tap'+(done?' done':'')});
-  row.append(el('div',{class:'box', html:CHECK}));
+  row.append(el('div',{class:'box'+(justTapId===r.id?' pop':''), html:CHECK}));
   const tx=el('div',{class:'tx'});
   tx.append(el('div',{class:'t'}, r.t));
   if(r.d) tx.append(el('div',{class:'d'}, r.d));
@@ -614,13 +787,23 @@ function taskRow(iso, r){
 }
 
 function logWork(p, amount, iso){
-  const c=curr(p);
-  if(c.subs && c.subs.length){ let k=amount; for(const s of c.subs){ if(k<=0)break; if(!s.done){ s.done=true; k--; } } }
+  const c=curr(p), wasLive=projLive(p);
+  if(c.subs && c.subs.length){ let k=amount; for(const s of c.subs){ if(k<=0)break; if(!s.done){ s.done=true; k--; award(50,'Step: '+s.text); } } }
   else c.done=Math.min(pTotal(p), (+c.done||0)+amount);
   p.lastWorked=iso;
-  if(hasStages(p) && c!==p && pRemaining(p)===0) c.complete=true;
-  if(!projLive(p)) p.archived=true;
-  save(); render();
+  award(Math.round(minPerSessionOf(p)*(amount/perSessionOf(p))), p.name+' — session');
+  if(hasStages(p) && c!==p && pRemaining(p)===0 && !c.complete){
+    c.complete=true;
+    const dn=p.stages.filter(s=>s.complete).length;
+    award(250,'Stage done: '+c.name, {cele:{kicker:'Stage complete', big:'“'+c.name+'” done', sub:`${p.name} · ${dn} of ${p.stages.length} stages`}});
+  }
+  if(wasLive && !projLive(p)){
+    p.archived=true;
+    if(S.focus && S.focus.id===p.id) S.focus=null;
+    award(500,'Project done: '+p.name, {cele:{kicker:'Project complete', big:p.name, sub:'Done. Off your plate for good.'}});
+  }
+  checkDayCleared(iso);
+  save(); render(); flushCele();
 }
 function autoFocusCard(fp, iso){
   const p=fp.project, st=fp.stage;
@@ -637,7 +820,7 @@ function autoFocusCard(fp, iso){
 
   const meta=el('div',{class:'inline', style:'gap:8px;margin:8px 0 0;flex-wrap:wrap'});
   const dl=deadlineTag(deadlineOf(p)); if(dl) meta.append(dl);
-  if(p.pinned) meta.append(el('span',{class:'badge'},'\u{1f4cc} pinned'));
+  if(S.focus && S.focus.id===p.id) meta.append(el('span',{class:'badge ok'},'\u{1f3af} focus'));
   if(p.priority!=='normal') meta.append(el('span',{class:'badge'}, p.priority==='must'?'must-do':'low priority'));
   if(meta.children.length) c.append(meta);
   c.append(el('div',{class:'muted tiny', style:'margin-top:6px'}, fp.status.txt));
@@ -655,7 +838,16 @@ function autoFocusCard(fp, iso){
       const sr=el('div',{class:'sub'+(s.done?' done':'')});
       sr.append(el('div',{class:'box', html:CHECK}));
       sr.append(el('div',{class:'s'}, s.text));
-      sr.addEventListener('click',()=>{ s.done=!s.done; p.lastWorked=iso; if(hasStages(p)&&pRemaining(p)===0)cw.complete=true; if(!projLive(p))p.archived=true; save(); render(); });
+      sr.addEventListener('click',()=>{
+        const wasLive=projLive(p);
+        s.done=!s.done; p.lastWorked=iso;
+        if(s.done) award(50,'Step: '+s.text); else award(-50,'Step: '+s.text);
+        if(hasStages(p)&&pRemaining(p)===0&&!cw.complete){ cw.complete=true; const dn=p.stages.filter(x=>x.complete).length;
+          award(250,'Stage done: '+cw.name,{cele:{kicker:'Stage complete', big:'“'+cw.name+'” done', sub:`${p.name} · ${dn} of ${p.stages.length} stages`}}); }
+        if(wasLive&&!projLive(p)){ p.archived=true; if(S.focus&&S.focus.id===p.id)S.focus=null;
+          award(500,'Project done: '+p.name,{cele:{kicker:'Project complete', big:p.name, sub:'Done. Off your plate for good.'}}); }
+        checkDayCleared(iso); save(); render(); flushCele();
+      });
       list.append(sr);
     });
     c.append(list);
@@ -667,7 +859,7 @@ function autoFocusCard(fp, iso){
     ]));
   }
   c.append(el('button',{class:'btn primary sm block', style:'margin-top:12px',
-    onclick:()=>{ logWork(p, fp.amount, iso); dayChecks(iso).focus=true; save(); render(); }},
+    onclick:()=>{ dayChecks(iso).focus=true; justTapId='focus'; logWork(p, fp.amount, iso); }},
     `Log tonight’s ${fp.amount} ${unit(p,fp.amount)} done`));
   return c;
 }
@@ -700,7 +892,8 @@ function viewProjects(app){
   const iso=todayISO(), fpNext=pickFocus(iso);
   const live=S.projects.filter(p=>!p.archived), done=S.projects.filter(p=>p.archived);
   if(!live.length) app.append(el('div',{class:'empty'},'No projects.'));
-  live.sort((a,b)=>(b.pinned?1:0)-(a.pinned?1:0) || prW(b.priority)-prW(a.priority) || (deadlineOf(a)||'~').localeCompare(deadlineOf(b)||'~'));
+  const fid=S.focus&&S.focus.id;
+  live.sort((a,b)=>(b.id===fid?1:0)-(a.id===fid?1:0) || prW(b.priority)-prW(a.priority) || (deadlineOf(a)||'~').localeCompare(deadlineOf(b)||'~'));
   for(const p of live) app.append(projectCard(p, iso, fpNext&&fpNext.project===p));
   if(done.length){
     app.append(el('div',{class:'divider'}));
@@ -709,13 +902,15 @@ function viewProjects(app){
   }
 }
 function projectCard(p, iso, isNext){
-  const c=el('div',{class:'card'+(isNext?' focuscard':'')});
+  const isFocus = S.focus && S.focus.id===p.id;
+  const c=el('div',{class:'card'+(isNext||isFocus?' focuscard':'')});
   const feas=feasibility(p);
-  c.append(el('h3',{}, (p.pinned?'\u{1f4cc} ':'')+p.name));
+  c.append(el('h3',{}, (isFocus?'\u{1f3af} ':'')+p.name));
   const tags=el('div',{class:'inline', style:'gap:6px;margin-top:5px;flex-wrap:wrap'});
   const dl=deadlineTag(deadlineOf(p)); if(dl) tags.append(dl);
   if(p.priority!=='normal') tags.append(el('span',{class:'badge'}, p.priority==='must'?'must-do':'low'));
-  if(isNext) tags.append(el('span',{class:'badge ok'},'up next'));
+  if(isFocus) tags.append(el('span',{class:'badge ok'},'focus'));
+  else if(isNext) tags.append(el('span',{class:'badge ok'},'up next'));
   if(feas && !feas.ok) tags.append(el('span',{class:'badge over'},'behind deadline'));
   if(tags.children.length) c.append(tags);
   if(p.notes) c.append(el('div',{class:'muted tiny', style:'margin-top:8px;white-space:pre-wrap'}, p.notes));
@@ -729,15 +924,29 @@ function projectCard(p, iso, isNext){
   }
   const act=el('div',{class:'row-actions'});
   if(!p.archived){
-    act.append(el('button',{class:'btn sm'+(p.pinned?' primary':''), onclick:()=>{ p.pinned=!p.pinned; save(); render(); }}, p.pinned?'Pinned':'Pin'));
+    act.append(el('button',{class:'btn sm'+(isFocus?' primary':''), onclick:()=> isFocus ? (S.focus=null, save(), render()) : chooseFocus(p) }, isFocus?'\u{1f3af} Focus ✓':'\u{1f3af} Focus'));
     act.append(el('button',{class:'btn sm', onclick:()=>editProject(p)},'Edit'));
-    act.append(el('button',{class:'btn sm', onclick:()=>{ p.archived=true; p.pinned=false; save(); render(); }},'Archive'));
+    act.append(el('button',{class:'btn sm', onclick:()=>{ p.archived=true; if(S.focus&&S.focus.id===p.id)S.focus=null; save(); render(); }},'Archive'));
   } else {
     act.append(el('button',{class:'btn sm', onclick:()=>{ p.archived=false; save(); render(); }},'Reopen'));
     act.append(armDelete('Delete', ()=>{ S.projects=S.projects.filter(x=>x!==p); save(); render(); }));
   }
   c.append(act);
   return c;
+}
+function bestStreak(){ return S.routines.reduce((m,r)=>Math.max(m, routineStreak(r)), 0); }
+function chooseFocus(p){
+  let lvl=2;
+  sheet('\u{1f3af} Focus: '+p.name, [
+    field('', el('p',{class:'muted', style:'margin:2px 0 4px'}, 'Everything bends toward finishing this. Low-priority routines pause. Rest nights become work nights, except the ones you keep below.')),
+    labeled('Keep how many rest nights a week?', segmented([['2','2 · balanced'],['1','1 · pushing'],['0','0 · all in']], String(lvl), v=>lvl=+v)),
+  ], ()=>{
+    S.focus={id:p.id, restPerWeek:lvl};
+    save(); render();
+    _pendingCele={kicker:'Focus on', big:p.name, sub:'Let’s get this done.'};
+    flushCele();
+    return true;
+  });
 }
 function editProject(p){
   const isNew=!p;
@@ -759,7 +968,7 @@ function editProject(p){
   }
   function drawBody(){
     bodyBox.innerHTML='';
-    bodyBox.append(field('Unit name', `<input id="p_unit" value="${esc(p.unitLabel||'session')}" placeholder="episodes / scenes / passes">`));
+    bodyBox.append(field('Unit name (singular)', `<input id="p_unit" value="${esc(p.unitLabel||'session')}" placeholder="episode / scene / pass">`));
     bodyBox.append(el('div',{class:'grid2'},[
       field('Per work session', `<input id="p_per" type="number" min="1" value="${p.perSession||1}">`),
       field('Minutes a session takes', `<input id="p_min" type="number" min="5" step="5" value="${p.minPerSession||45}">`),
@@ -1037,9 +1246,62 @@ function editTask(t){
   isNew?null:()=>{ S.tasks=S.tasks.filter(x=>x!==t); save(); closeSheet(); render(); });
 }
 
+/* ===== YOU ===== */
+function viewYou(app){
+  const pg=xpProg(S.xp);
+  app.append(el('header',{class:'hero'},[ el('div',{class:'greet'}, S.user==='there'?'You':S.user), el('div',{class:'sub'},'Everything you’ve done, adding up.') ]));
+
+  const lc=el('div',{class:'lvlcard'});
+  lc.append(el('div',{class:'inline', style:'justify-content:space-between'},[
+    el('div',{class:'lv'}, 'Level '+pg.level),
+    el('div',{class:'faint tiny'}, `${S.xp.toLocaleString()} XP total`),
+  ]));
+  lc.append(el('div',{class:'xpbar', style:'margin-top:10px'},[ el('i',{style:`width:${pg.pct}%`}) ]));
+  lc.append(el('div',{class:'faint tiny', style:'margin-top:5px'}, `${pg.need-pg.into} XP to Level ${pg.level+1}`));
+  app.append(lc);
+
+  const projDone=S.projects.filter(p=>p.archived).length;
+  const stagesDone=S.projects.reduce((t,p)=>t+(p.stages||[]).filter(s=>s.complete).length,0);
+  const skillHrs=S.skills.reduce((t,k)=>t+skillMinutes(k),0)/60;
+  app.append(el('div',{class:'statgrid'},[
+    el('div',{class:'s'},[ el('b',{}, '\u{1f525} '+bestStreak()), el('span',{},'best routine streak') ]),
+    el('div',{class:'s'},[ el('b',{}, '+'+xpToday()), el('span',{},'XP today') ]),
+    el('div',{class:'s'},[ el('b',{}, String(projDone)), el('span',{},projDone===1?'project finished':'projects finished') ]),
+    el('div',{class:'s'},[ el('b',{}, String(stagesDone)), el('span',{},'stages cleared') ]),
+    el('div',{class:'s'},[ el('b',{}, skillHrs>=1?skillHrs.toFixed(0)+'h':Math.round(skillHrs*60)+'m'), el('span',{},'skill practice') ]),
+    el('div',{class:'s'},[ el('b',{}, String(S.routines.length)), el('span',{},'active routines') ]),
+  ]));
+
+  if(S.skills.length){
+    const sc=el('div',{class:'card'});
+    sc.append(el('h3',{},'Skills'));
+    S.skills.slice().sort((a,b)=>skillMinutes(b)-skillMinutes(a)).forEach(k=>{
+      sc.append(el('div',{class:'weekrow'},[
+        el('div',{}, k.name),
+        el('div',{class:'tiny faint'}, `Lv ${skillLevel(k)} · ${fmtDur(skillMinutes(k))}`),
+      ]));
+    });
+    app.append(sc);
+  }
+
+  const fc=el('div',{class:'card'});
+  fc.append(el('h3',{},'Recent'));
+  const feed=el('div',{class:'feed'});
+  (S.xpLog||[]).slice(0,25).forEach(e=>{
+    feed.append(el('div',{},[ el('span',{}, `${e.label}`), el('span',{class:'amt'}, `+${e.amt}`) ]));
+  });
+  if(!S.xpLog||!S.xpLog.length) feed.append(el('div',{class:'faint'},'Nothing logged yet. Go check something off.'));
+  fc.append(feed);
+  app.append(fc);
+
+  app.append(el('button',{class:'btn block', style:'margin-top:14px', onclick:()=>go('settings')}, '⚙  Settings'));
+}
+
 /* ===== SETTINGS ===== */
 function viewSettings(app){
-  app.append(el('header',{class:'hero'},[ el('div',{class:'greet'},'Settings'), el('div',{class:'sub'},'Set once. Then stop thinking about it.') ]));
+  app.append(el('header',{class:'hero'},[
+    el('button',{class:'btn ghost sm', style:'padding:4px 8px;margin-bottom:8px', onclick:()=>go('you')}, '← You'),
+    el('div',{class:'greet'},'Settings'), el('div',{class:'sub'},'Set once. Then stop thinking about it.') ]));
 
   const who=el('div',{class:'card'});
   who.append(el('h3',{},'Names'));
@@ -1210,7 +1472,7 @@ function onboard(){
       box.append(field('Name', `<input id="w_pn" value="${esc(st.proj.name)}" placeholder="Edit the podcast season">`));
       box.append(el('div',{class:'grid2'},[
         field('How many parts?', `<input id="w_pt" type="number" min="1" value="${st.proj.total||''}">`),
-        field('Called…', `<input id="w_pu" value="${esc(st.proj.unit)}" placeholder="episodes">`),
+        field('Called (singular)', `<input id="w_pu" value="${esc(st.proj.unit)}" placeholder="episode">`),
       ]));
       box.append(field('Deadline (optional)', `<input id="w_pd" type="date" value="${st.proj.deadline||''}">`));
     }
