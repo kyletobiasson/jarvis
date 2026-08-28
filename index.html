@@ -147,6 +147,14 @@
   .planday:last-child{border-bottom:0}
   .planday .dow{width:64px; flex:0 0 auto; color:var(--muted); font-weight:600}
   .planday.rest .what{color:var(--faint)}
+  .stagestrip{display:flex; flex-direction:column; gap:4px; margin:10px 0 2px; border-left:2px solid var(--line); padding-left:10px}
+  .stg{font-size:.85rem; color:var(--faint); display:flex; gap:7px; align-items:center}
+  .stg .stgdot{width:14px; text-align:center; font-weight:700}
+  .stg.active{color:var(--text); font-weight:600}
+  .stg.active .stgdot{color:var(--accent)}
+  .stg.done{color:var(--muted)} .stg.done .stgdot{color:var(--good)}
+  .stagerow{display:flex; gap:6px; align-items:center; margin:6px 0}
+  .stagerow input[type=text],.stagerow input:not([type]){flex:1; min-width:0}
 </style>
 </head>
 <body>
@@ -191,8 +199,10 @@ function migrate(s){
   if(s.water){ s.counters.water = Object.assign({}, s.counters.water, s.water); delete s.water; }
   for(const k in s.week) if(s.week[k]==='edmontask') s.week[k]='project';
   s.projects = (s.projects||[]).map(p=>{ const q=Object.assign({
-    id:uid(), name:'', deadline:'', unitLabel:'session', total:1, done:0, perSession:1, minPerSession:45, priority:'normal', notes:'', subs:[], pinned:false, archived:false, lastWorked:''
-  }, p); delete q.active; return q; });
+    id:uid(), name:'', deadline:'', unitLabel:'session', total:1, done:0, perSession:1, minPerSession:45, priority:'normal', notes:'', subs:[], stages:[], pinned:false, archived:false, lastWorked:''
+  }, p); delete q.active;
+    q.stages=(q.stages||[]).map(s=>Object.assign({id:uid(), name:'', total:1, done:0, deadline:'', complete:false}, s));
+    return q; });
   s.routines = (s.routines||[]).map(r=>Object.assign({
     id:uid(), name:'', hint:'', cadence:{type:'daily'}, slot:'evening', priority:'normal', skipRest:false, lock:'', kind:'check', goal:1, oz:0
   }, r));
@@ -317,11 +327,22 @@ function eventsOn(iso){ return S.events.filter(e=>e.date===iso).sort((a,b)=>(a.t
 function eveningCommitment(iso){ return eventsOn(iso).some(e=> !e.time || parseHM(e.time) >= 16*60); }
 
 /* ---------- projects / scheduler ---------- */
-function pDone(p){ return (p.subs&&p.subs.length) ? p.subs.filter(s=>s.done).length : (+p.done||0); }
-function pTotal(p){ return (p.subs&&p.subs.length) ? Math.max(+p.total||0, p.subs.length) : (+p.total||0); }
+// A project is either flat, or broken into stages. curr() is the thing to work on now.
+function hasStages(p){ return p.stages && p.stages.length>0; }
+function curr(p){
+  if(hasStages(p)) return p.stages.find(s=>!s.complete) || p.stages[p.stages.length-1];
+  return p;
+}
+function deadlineOf(p){ return curr(p).deadline || p.deadline || ''; }
+function pDone(p){ const c=curr(p); return (c.subs&&c.subs.length) ? c.subs.filter(s=>s.done).length : (+c.done||0); }
+function pTotal(p){ const c=curr(p); return (c.subs&&c.subs.length) ? Math.max(+c.total||0, c.subs.length) : (+c.total||0); }
 function pRemaining(p){ return Math.max(0, pTotal(p) - pDone(p)); }
+function projRemaining(p){ return hasStages(p) ? p.stages.filter(s=>!s.complete).reduce((t,s)=>t+Math.max(0,(+s.total||0)-(+s.done||0)),0) : pRemaining(p); }
+function projLive(p){ return !p.archived && (hasStages(p) ? p.stages.some(s=>!s.complete) : pRemaining(p)>0); }
 function unit(p,n){ const u=p.unitLabel||'session'; return Math.abs(n)===1 ? u : u+'s'; }
-function liveProjects(){ return S.projects.filter(p=>!p.archived && pRemaining(p)>0); }
+function perSessionOf(p){ return Math.max(1, +(curr(p).perSession || p.perSession) || 1); }
+function minPerSessionOf(p){ return +(curr(p).minPerSession || p.minPerSession) || 45; }
+function liveProjects(){ return S.projects.filter(projLive); }
 function focusNightsPerWeek(){ return Object.values(S.week).filter(v=>v==='project').length || 3; }
 
 function score(o, iso, fnpw){
@@ -348,43 +369,55 @@ function amountFor(s){
   if(s.need!=null) amt=Math.max(s.per, Math.round(s.need));
   return Math.max(1, Math.min(amt, s.per*2));   // never suggest more than 2 sessions' worth in one night
 }
+// remaining work as an ordered list of stages ({name, remaining, deadline})
+function workStages(p){
+  if(hasStages(p)) return p.stages.filter(s=>!s.complete).map(s=>({
+    name:s.name, remaining:Math.max(0,(+s.total||0)-(+s.done||0)), deadline:s.deadline||p.deadline||'' }));
+  return [{name:'', remaining:pRemaining(p), deadline:p.deadline||''}];
+}
 function pickFocus(iso){
   const cands=liveProjects();
   if(!cands.length) return null;
   const pinned=cands.filter(p=>p.pinned);
-  const pool=(pinned.length?pinned:cands).map(p=>({p, deadline:p.deadline, remaining:pRemaining(p), per:+p.perSession||1, priority:p.priority, lastWorked:p.lastWorked||''}));
   const fnpw=focusNightsPerWeek();
+  const pool=(pinned.length?pinned:cands).map(p=>({p, deadline:deadlineOf(p), remaining:pRemaining(p), per:perSessionOf(p), priority:p.priority, lastWorked:p.lastWorked||''}));
   pool.sort((a,b)=>cmp(a,b,iso,fnpw));
   const win=pool[0], s=score(win,iso,fnpw);
   const amount=Math.min(win.remaining, amountFor(s));
+  const st = hasStages(win.p) ? curr(win.p) : null;
   let status;
   if(s.daysLeft!=null&&s.daysLeft<=0) status={cls:'over', txt:'past its deadline — do what you can'};
   else if(!win.deadline) status={cls:'', txt:`steady pace · ${win.remaining} ${unit(win.p,win.remaining)} left · add a deadline for real pacing`};
   else if(s.pressure>1.25) status={cls:'soon', txt:`behind — ${amount} ${unit(win.p,amount)} tonight to catch up · ${s.fnl} focus nights to deadline`};
   else if(s.pressure<0.7) status={cls:'ok', txt:`ahead — ${win.remaining} left over ~${s.fnl} focus nights`};
   else status={cls:'', txt:`on pace — ${win.remaining} ${unit(win.p,win.remaining)} over ~${s.fnl} focus nights`};
-  return {project:win.p, amount, status, feas:feasibility(win.p)};
+  return {project:win.p, stage:st, amount, status, feas:feasibility(win.p)};
 }
 
 let _simKey='', _simCache=null;
 function simFinishes(){
-  const key=JSON.stringify(S.projects.map(p=>[p.id,pRemaining(p),p.deadline,p.perSession,p.priority,p.pinned,p.archived]))+JSON.stringify(S.week)+JSON.stringify(S.events);
+  const key=JSON.stringify(S.projects.map(p=>[p.id,p.archived,p.priority,p.pinned,p.perSession,workStages(p)]))+JSON.stringify(S.week)+JSON.stringify(S.events);
   if(_simKey===key) return _simCache;
   _simKey=key; _simCache=buildProjection(150).finishes;
   return _simCache;
 }
 function feasibility(p){
-  if(!p.deadline) return null;
+  if(!deadlineOf(p)) return null;
   const f=(simFinishes()||[]).find(x=>x.id===p.id);
   if(!f) return null;
-  const ok = f.finish && f.finish<=p.deadline;
-  return {ok, finish:f.finish, late: f.finish? Math.max(0, daysBetween(p.deadline, f.finish)) : null};
+  const target = f.stageFinish || f.finish;        // active stage's projected completion
+  const dl = deadlineOf(p);
+  const ok = target && target<=dl;
+  return {ok, finish:target, late: target? Math.max(0, daysBetween(dl, target)) : null, staged:hasStages(p), stageName: hasStages(p)?curr(p).name:'' };
 }
 
 function buildProjection(days){
   const fnpw=focusNightsPerWeek();
-  const sim=liveProjects().map(p=>({p, deadline:p.deadline, remaining:pRemaining(p), per:+p.perSession||1, priority:p.priority, lastWorked:p.lastWorked||'', finish:null}));
-  const pinned=sim.filter(s=>s.p.pinned);
+  const sim=liveProjects().map(p=>({
+    p, stages:workStages(p), si:0, per:perSessionOf(p), minPer:minPerSessionOf(p),
+    priority:p.priority, pinned:p.pinned, lastWorked:p.lastWorked||'', finish:null, stageFinish:null
+  }));
+  const left=s=>s.stages.slice(s.si).reduce((t,x)=>t+Math.max(0,x.remaining),0);
   const out=[];
   for(let i=0;i<days;i++){
     const iso=addDays(todayISO(), i);
@@ -393,20 +426,28 @@ function buildProjection(days){
     const blocked=evs.some(e=>!e.time||parseHM(e.time)>=16*60);
     const day={iso, dow, mode, events:evs.map(e=>e.title), focus:null};
     if(mode==='project' && !blocked){
-      const avail=(pinned.some(s=>s.remaining>0)?pinned:sim).filter(s=>s.remaining>0);
-      if(avail.length){
-        avail.sort((a,b)=>cmp(a,b,iso,fnpw));
-        const w=avail[0], s=score(w,iso,fnpw);
-        const amt=Math.min(w.remaining, amountFor(s));
-        w.remaining-=amt; w.lastWorked=iso;
-        if(w.remaining===0 && !w.finish) w.finish=iso;
-        day.focus={name:w.p.name, amount:amt, unit:unit(w.p,amt), done:w.remaining===0,
-          mins:(w.p.minPerSession||45)*(amt/Math.max(1,w.p.perSession||1))};
+      const active=sim.filter(s=> s.si<s.stages.length && left(s)>0);
+      const pool=(active.filter(s=>s.pinned).length?active.filter(s=>s.pinned):active);
+      if(pool.length){
+        pool.forEach(s=>{ s._o={deadline:s.stages[s.si].deadline, remaining:s.stages[s.si].remaining, per:s.per, priority:s.priority, lastWorked:s.lastWorked}; });
+        pool.sort((a,b)=>cmp(a._o,b._o,iso,fnpw));
+        const w=pool[0], sc=score(w._o,iso,fnpw);
+        const amt=Math.max(1, Math.min(w._o.remaining, amountFor(sc)));
+        w.stages[w.si].remaining-=amt; w.lastWorked=iso;
+        let doneNote='';
+        if(w.stages[w.si].remaining<=0){
+          if(w.si===0 && !w.stageFinish) w.stageFinish=iso;
+          const finishedStage=w.stages[w.si].name; w.si++;
+          if(w.si>=w.stages.length){ if(!w.finish) w.finish=iso; doneNote=' — done ✓'; }
+          else if(finishedStage) doneNote=` — “${finishedStage}” done`;
+        }
+        day.focus={name:w.p.name, stage:(hasStages(w.p)&&w.stages[Math.min(w.si,w.stages.length-1)])?w.stages[Math.min(w.si,w.stages.length-1)].name:'',
+          amount:amt, unit:unit(w.p,amt), note:doneNote, mins:w.minPer*(amt/Math.max(1,w.per))};
       }
     }
     out.push(day);
   }
-  const finishes=sim.map(s=>({id:s.p.id, name:s.p.name, deadline:s.deadline, finish:s.finish, remaining:s.remaining}));
+  const finishes=sim.map(s=>({id:s.p.id, name:s.p.name, deadline:s.stages[0]?s.stages[0].deadline:'', finish:s.finish, stageFinish:s.stageFinish, remaining:left(s)}));
   return {out, finishes};
 }
 
@@ -572,52 +613,74 @@ function taskRow(iso, r){
   return row;
 }
 
+function logWork(p, amount, iso){
+  const c=curr(p);
+  if(c.subs && c.subs.length){ let k=amount; for(const s of c.subs){ if(k<=0)break; if(!s.done){ s.done=true; k--; } } }
+  else c.done=Math.min(pTotal(p), (+c.done||0)+amount);
+  p.lastWorked=iso;
+  if(hasStages(p) && c!==p && pRemaining(p)===0) c.complete=true;
+  if(!projLive(p)) p.archived=true;
+  save(); render();
+}
 function autoFocusCard(fp, iso){
-  const p=fp.project;
+  const p=fp.project, st=fp.stage;
   const c=el('div',{class:'card focuscard'});
   const done=isDone(iso,'focus');
   const head=el('div',{class:'row tap'+(done?' done':''), style:'border:0;background:none;padding:4px 0;margin:0'});
   head.append(el('div',{class:'box', html:CHECK}));
-  head.append(el('div',{class:'tx'},[ el('div',{class:'t'}, p.name), el('div',{class:'d'}, `tonight: ${fp.amount} ${unit(p,fp.amount)} · ~${fmtDur((p.minPerSession||45) * (fp.amount/Math.max(1,p.perSession||1)))}`) ]));
+  head.append(el('div',{class:'tx'},[
+    el('div',{class:'t'}, p.name),
+    el('div',{class:'d'}, `${st?st.name+' · ':''}tonight: ${fp.amount} ${unit(p,fp.amount)} · ~${fmtDur(minPerSessionOf(p) * (fp.amount/perSessionOf(p)))}`),
+  ]));
   head.addEventListener('click',()=>toggle(iso,'focus'));
   c.append(head);
 
   const meta=el('div',{class:'inline', style:'gap:8px;margin:8px 0 0;flex-wrap:wrap'});
-  const dl=deadlineTag(p.deadline); if(dl) meta.append(dl);
+  const dl=deadlineTag(deadlineOf(p)); if(dl) meta.append(dl);
   if(p.pinned) meta.append(el('span',{class:'badge'},'\u{1f4cc} pinned'));
   if(p.priority!=='normal') meta.append(el('span',{class:'badge'}, p.priority==='must'?'must-do':'low priority'));
   if(meta.children.length) c.append(meta);
   c.append(el('div',{class:'muted tiny', style:'margin-top:6px'}, fp.status.txt));
   if(fp.feas && !fp.feas.ok) c.append(el('div',{class:'tiny', style:'margin-top:4px;color:var(--bad)'},
-    `⚠ ${fp.feas.finish?`won’t make the deadline — projected done ${dstr(fp.feas.finish)}`:'won’t finish at this pace'}. Raise per-session, add focus nights, or move the date.`));
+    `⚠ ${fp.feas.finish?`${fp.feas.staged?`“${fp.feas.stageName}” `:''}won’t make its deadline — projected ${dstr(fp.feas.finish)}`:'won’t finish at this pace'}. Raise per-session, add focus nights, or move the date.`));
 
+  if(hasStages(p)) c.append(stageStrip(p));
   c.append(el('div',{class:'bar'},[ el('i',{style:`width:${pTotal(p)?Math.round(pDone(p)/pTotal(p)*100):0}%`}) ]));
-  c.append(el('div',{class:'faint tiny', style:'margin-top:4px'}, `${pDone(p)} of ${pTotal(p)} ${unit(p,pTotal(p))} done`));
+  c.append(el('div',{class:'faint tiny', style:'margin-top:4px'}, `${pDone(p)} of ${pTotal(p)} ${unit(p,pTotal(p))}${st?' in this stage':''}`));
 
-  if(p.subs && p.subs.length){
+  const cw=curr(p);
+  if(cw.subs && cw.subs.length){
     const list=el('div',{class:'sub-list'});
-    p.subs.slice().sort((a,b)=>a.done-b.done).slice(0,6).forEach(s=>{
+    cw.subs.slice().sort((a,b)=>a.done-b.done).slice(0,6).forEach(s=>{
       const sr=el('div',{class:'sub'+(s.done?' done':'')});
       sr.append(el('div',{class:'box', html:CHECK}));
       sr.append(el('div',{class:'s'}, s.text));
-      sr.addEventListener('click',()=>{ s.done=!s.done; p.lastWorked=iso; if(pRemaining(p)===0)p.archived=true; save(); render(); });
+      sr.addEventListener('click',()=>{ s.done=!s.done; p.lastWorked=iso; if(hasStages(p)&&pRemaining(p)===0)cw.complete=true; if(!projLive(p))p.archived=true; save(); render(); });
       list.append(sr);
     });
     c.append(list);
   } else {
     c.append(el('div',{class:'stepper'},[
-      el('button',{onclick:()=>{ p.done=Math.max(0,(+p.done||0)-1); save(); render(); }},'−'),
+      el('button',{onclick:()=>{ cw.done=Math.max(0,(+cw.done||0)-1); save(); render(); }},'−'),
       el('div',{class:'val'}, `${pDone(p)} / ${pTotal(p)}`),
-      el('button',{onclick:()=>{ p.done=Math.min(pTotal(p),(+p.done||0)+1); p.lastWorked=iso; if(pRemaining(p)===0)p.archived=true; save(); render(); }},'+'),
+      el('button',{onclick:()=>logWork(p,1,iso)},'+'),
     ]));
   }
   c.append(el('button',{class:'btn primary sm block', style:'margin-top:12px',
-    onclick:()=>{
-      if(p.subs&&p.subs.length){ let k=fp.amount; for(const s of p.subs){ if(k<=0)break; if(!s.done){s.done=true;k--;} } }
-      else p.done=Math.min(pTotal(p),(+p.done||0)+fp.amount);
-      p.lastWorked=iso; dayChecks(iso).focus=true; if(pRemaining(p)===0)p.archived=true; save(); render();
-    }}, `Log tonight’s ${fp.amount} ${unit(p,fp.amount)} done`));
+    onclick:()=>{ logWork(p, fp.amount, iso); dayChecks(iso).focus=true; save(); render(); }},
+    `Log tonight’s ${fp.amount} ${unit(p,fp.amount)} done`));
   return c;
+}
+function stageStrip(p){
+  const w=el('div',{class:'stagestrip'});
+  p.stages.forEach(s=>{
+    const state = s.complete ? 'done' : (s===curr(p) ? 'active' : 'up');
+    w.append(el('div',{class:'stg '+state}, [
+      el('span',{class:'stgdot'}, s.complete?'✓':(state==='active'?'▸':'')),
+      el('span',{}, s.name),
+    ]));
+  });
+  return w;
 }
 function deadlineTag(d){
   if(!d) return null;
@@ -637,7 +700,7 @@ function viewProjects(app){
   const iso=todayISO(), fpNext=pickFocus(iso);
   const live=S.projects.filter(p=>!p.archived), done=S.projects.filter(p=>p.archived);
   if(!live.length) app.append(el('div',{class:'empty'},'No projects.'));
-  live.sort((a,b)=>(b.pinned?1:0)-(a.pinned?1:0) || prW(b.priority)-prW(a.priority) || (a.deadline||'~').localeCompare(b.deadline||'~'));
+  live.sort((a,b)=>(b.pinned?1:0)-(a.pinned?1:0) || prW(b.priority)-prW(a.priority) || (deadlineOf(a)||'~').localeCompare(deadlineOf(b)||'~'));
   for(const p of live) app.append(projectCard(p, iso, fpNext&&fpNext.project===p));
   if(done.length){
     app.append(el('div',{class:'divider'}));
@@ -650,14 +713,20 @@ function projectCard(p, iso, isNext){
   const feas=feasibility(p);
   c.append(el('h3',{}, (p.pinned?'\u{1f4cc} ':'')+p.name));
   const tags=el('div',{class:'inline', style:'gap:6px;margin-top:5px;flex-wrap:wrap'});
-  const dl=deadlineTag(p.deadline); if(dl) tags.append(dl);
+  const dl=deadlineTag(deadlineOf(p)); if(dl) tags.append(dl);
   if(p.priority!=='normal') tags.append(el('span',{class:'badge'}, p.priority==='must'?'must-do':'low'));
   if(isNext) tags.append(el('span',{class:'badge ok'},'up next'));
   if(feas && !feas.ok) tags.append(el('span',{class:'badge over'},'behind deadline'));
   if(tags.children.length) c.append(tags);
   if(p.notes) c.append(el('div',{class:'muted tiny', style:'margin-top:8px;white-space:pre-wrap'}, p.notes));
-  c.append(el('div',{class:'bar'},[ el('i',{style:`width:${pTotal(p)?Math.round(pDone(p)/pTotal(p)*100):0}%`}) ]));
-  c.append(el('div',{class:'faint tiny', style:'margin-top:4px'}, `${pDone(p)} / ${pTotal(p)} ${unit(p,pTotal(p))}`+(feas&&feas.finish?` · projected done ${dstr(feas.finish)}`:'')));
+  if(hasStages(p)){
+    c.append(stageStrip(p));
+    const dn=p.stages.filter(s=>s.complete).length;
+    c.append(el('div',{class:'faint tiny', style:'margin-top:6px'}, `${dn} / ${p.stages.length} stages${!p.archived?` · ${curr(p).name}: ${pDone(p)}/${pTotal(p)} ${unit(p,pTotal(p))}`:''}`+(feas&&feas.finish?` · ${curr(p).name} projected ${dstr(feas.finish)}`:'')));
+  } else {
+    c.append(el('div',{class:'bar'},[ el('i',{style:`width:${pTotal(p)?Math.round(pDone(p)/pTotal(p)*100):0}%`}) ]));
+    c.append(el('div',{class:'faint tiny', style:'margin-top:4px'}, `${pDone(p)} / ${pTotal(p)} ${unit(p,pTotal(p))}`+(feas&&feas.finish?` · projected done ${dstr(feas.finish)}`:'')));
+  }
   const act=el('div',{class:'row-actions'});
   if(!p.archived){
     act.append(el('button',{class:'btn sm'+(p.pinned?' primary':''), onclick:()=>{ p.pinned=!p.pinned; save(); render(); }}, p.pinned?'Pinned':'Pin'));
@@ -665,46 +734,88 @@ function projectCard(p, iso, isNext){
     act.append(el('button',{class:'btn sm', onclick:()=>{ p.archived=true; p.pinned=false; save(); render(); }},'Archive'));
   } else {
     act.append(el('button',{class:'btn sm', onclick:()=>{ p.archived=false; save(); render(); }},'Reopen'));
-    act.append(el('button',{class:'del', onclick:()=>{ if(confirm('Delete permanently?')){ S.projects=S.projects.filter(x=>x!==p); save(); render(); } }},'Delete'));
+    act.append(armDelete('Delete', ()=>{ S.projects=S.projects.filter(x=>x!==p); save(); render(); }));
   }
   c.append(act);
   return c;
 }
 function editProject(p){
   const isNew=!p;
-  p = p || {id:uid(), name:'', deadline:'', unitLabel:'session', total:1, done:0, perSession:1, priority:'normal', notes:'', subs:[], pinned:false, archived:false, lastWorked:''};
+  p = p || {id:uid(), name:'', deadline:'', unitLabel:'session', total:1, done:0, perSession:1, minPerSession:45, priority:'normal', notes:'', subs:[], stages:[], pinned:false, archived:false, lastWorked:''};
   let prio=p.priority;
-  const subsText=(p.subs||[]).map(s=>(s.done?'x ':'')+s.text).join('\n');
+  let mode = hasStages(p) ? 'stages' : 'simple';
+  let stg = (p.stages||[]).map(s=>({...s}));
+  let subsText=(p.subs||[]).map(s=>(s.done?'x ':'')+s.text).join('\n');
+
+  const bodyBox=el('div',{});
+  function grabShared(){
+    if($('#p_unit')) p.unitLabel=$('#p_unit').value;
+    if($('#p_per')) p.perSession=Math.max(1,+$('#p_per').value||1);
+    if($('#p_min')) p.minPerSession=Math.max(5,+$('#p_min').value||45);
+    if($('#p_total')) p.total=Math.max(1,+$('#p_total').value||1);
+    if($('#p_done')) p.done=Math.max(0,+$('#p_done').value||0);
+    if($('#p_dl')) p.deadline=$('#p_dl').value;
+    if($('#p_subs')) subsText=$('#p_subs').value;
+  }
+  function drawBody(){
+    bodyBox.innerHTML='';
+    bodyBox.append(field('Unit name', `<input id="p_unit" value="${esc(p.unitLabel||'session')}" placeholder="episodes / scenes / passes">`));
+    bodyBox.append(el('div',{class:'grid2'},[
+      field('Per work session', `<input id="p_per" type="number" min="1" value="${p.perSession||1}">`),
+      field('Minutes a session takes', `<input id="p_min" type="number" min="5" step="5" value="${p.minPerSession||45}">`),
+    ]));
+    if(mode==='simple'){
+      bodyBox.append(el('div',{class:'grid2'},[
+        field('How many total?', `<input id="p_total" type="number" min="1" value="${p.total||1}">`),
+        field('Already done', `<input id="p_done" type="number" min="0" value="${p.done||0}">`),
+      ]));
+      bodyBox.append(field('Deadline (optional)', `<input id="p_dl" type="date" value="${p.deadline||''}">`));
+      bodyBox.append(field('Steps (optional, one per line — tracks progress)', `<textarea id="p_subs" placeholder="Act 1 pass\nAct 2 pass">${esc(subsText)}</textarea>`));
+    } else {
+      bodyBox.append(el('div',{class:'lab', style:'margin-top:12px'}, 'Stages, in order. The first unfinished one is what Jarvis schedules.'));
+      const list=el('div',{});
+      function drawList(){
+        list.innerHTML='';
+        stg.forEach((s,i)=>{
+          const row=el('div',{class:'stagerow'});
+          row.append(el('input',{value:s.name||'', placeholder:`Stage ${i+1}`, oninput:e=>s.name=e.target.value}));
+          row.append(el('input',{type:'number', min:'1', value:s.total||1, title:'count', style:'max-width:56px;text-align:center', oninput:e=>s.total=Math.max(1,+e.target.value||1)}));
+          row.append(el('input',{type:'date', value:s.deadline||'', style:'max-width:135px', oninput:e=>s.deadline=e.target.value}));
+          row.append(el('button',{class:'del', onclick:()=>{ stg.splice(i,1); drawList(); }},'✕'));
+          list.append(row);
+        });
+        if(!stg.length) list.append(el('div',{class:'empty tiny'},'No stages yet.'));
+      }
+      drawList();
+      bodyBox.append(list);
+      bodyBox.append(el('button',{class:'btn sm', style:'margin-top:8px', onclick:()=>{ stg.push({id:uid(), name:'', total:1, done:0, deadline:'', complete:false}); drawList(); }},'+ Add stage'));
+    }
+  }
+  drawBody();
+
   sheet(isNew?'New project':'Edit project', [
     field('Name', `<input id="p_name" value="${esc(p.name)}" placeholder="e.g. Website redesign">`),
     labeled('Priority', segmented(PRIOS, prio, v=>prio=v)),
-    field('Deadline (optional — powers pacing)', `<input id="p_dl" type="date" value="${p.deadline||''}">`),
-    el('div',{class:'grid2'},[
-      field('How many total?', `<input id="p_total" type="number" min="1" value="${p.total||1}">`),
-      field('Called…', `<input id="p_unit" value="${esc(p.unitLabel||'session')}" placeholder="episodes">`),
-    ]),
-    el('div',{class:'grid2'},[
-      field('Already done', `<input id="p_done" type="number" min="0" value="${p.done||0}">`),
-      field('Per work session', `<input id="p_per" type="number" min="1" value="${p.perSession||1}">`),
-    ]),
-    field('Minutes a session actually takes', `<input id="p_min" type="number" min="5" step="5" value="${p.minPerSession||45}">`),
+    labeled('Structure', segmented([['simple','Simple'],['stages','Stages']], mode, v=>{ grabShared(); mode=v; drawBody(); })),
+    bodyBox,
     field('Notes', `<textarea id="p_notes">${esc(p.notes||'')}</textarea>`),
-    field('Steps (optional, one per line — if used, these track progress)', `<textarea id="p_subs" placeholder="Act 1 pass\nAct 2 pass">${esc(subsText)}</textarea>`),
   ], ()=>{
     p.name=$('#p_name').value.trim(); if(!p.name) return false;
     p.priority=prio;
-    p.deadline=$('#p_dl').value;
-    p.total=Math.max(1,+$('#p_total').value||1);
-    p.unitLabel=$('#p_unit').value.trim()||'session';
-    p.done=Math.max(0,+$('#p_done').value||0);
-    p.perSession=Math.max(1,+$('#p_per').value||1);
-    p.minPerSession=Math.max(5,+$('#p_min').value||45);
+    grabShared();
+    p.unitLabel=(p.unitLabel||'').trim()||'session';
     p.notes=$('#p_notes').value.trim();
-    p.subs=$('#p_subs').value.split('\n').map(l=>l.trim()).filter(Boolean).map(l=>({text:l.replace(/^x\s+/i,''), done:/^x\s+/i.test(l)}));
-    if(p.subs.length) p.total=Math.max(p.total,p.subs.length);
+    if(mode==='simple'){
+      p.stages=[];
+      p.subs=subsText.split('\n').map(l=>l.trim()).filter(Boolean).map(l=>({text:l.replace(/^x\s+/i,''), done:/^x\s+/i.test(l)}));
+      if(p.subs.length) p.total=Math.max(p.total||1, p.subs.length);
+    } else {
+      const clean=stg.filter(s=>(s.name||'').trim()).map(s=>({id:s.id||uid(), name:s.name.trim(), total:Math.max(1,+s.total||1), done:Math.max(0,+s.done||0), deadline:s.deadline||'', complete:!!s.complete}));
+      if(clean.length){ p.stages=clean; p.subs=[]; } else p.stages=[];
+    }
     if(isNew) S.projects.push(p);
     save(); render(); return true;
-  }, isNew?null:()=>{ if(confirm('Delete this project?')){ S.projects=S.projects.filter(x=>x!==p); save(); closeSheet(); render(); } });
+  }, isNew?null:()=>{ S.projects=S.projects.filter(x=>x!==p); save(); closeSheet(); render(); });
 }
 
 /* ===== ROUTINES ===== */
@@ -719,7 +830,7 @@ function viewRoutines(app){
     if(r.hint) c.append(el('div',{class:'muted tiny', style:'margin-top:4px'}, r.hint));
     c.append(el('div',{class:'row-actions'},[
       el('button',{class:'btn sm', onclick:()=>editRoutine(r)},'Edit'),
-      el('button',{class:'del', onclick:()=>{ if(confirm('Delete this routine?')){ S.routines=S.routines.filter(x=>x!==r); save(); render(); } }},'Delete'),
+      armDelete('Delete', ()=>{ S.routines=S.routines.filter(x=>x!==r); save(); render(); }),
     ]));
     app.append(c);
   });
@@ -777,7 +888,7 @@ function editRoutine(r){
     Object.assign(r, d);
     if(isNew) S.routines.push(r);
     save(); render(); return true;
-  }, isNew?null:()=>{ if(confirm('Delete this routine?')){ S.routines=S.routines.filter(x=>x!==r); save(); closeSheet(); render(); } });
+  }, isNew?null:()=>{ S.routines=S.routines.filter(x=>x!==r); save(); closeSheet(); render(); });
 }
 
 /* ===== SKILLS ===== */
@@ -819,7 +930,7 @@ function editSkill(k){
     }
     if(isNew) S.skills.push(k);
     save(); render(); return true;
-  }, isNew?null:()=>{ if(confirm('Delete this skill and its history?')){ S.skills=S.skills.filter(x=>x!==k); save(); closeSheet(); render(); } });
+  }, isNew?null:()=>{ S.skills=S.skills.filter(x=>x!==k); save(); closeSheet(); render(); });
 }
 
 /* ===== PLAN ===== */
@@ -833,7 +944,7 @@ function viewPlan(app){
     const row=el('div',{class:'planday'+(day.mode!=='project'||!day.focus?' rest':'')});
     row.append(el('div',{class:'dow'}, day.iso===todayISO()?'Today':new Date(day.iso+'T00:00').toLocaleDateString(undefined,{weekday:'short',month:'numeric',day:'numeric'})));
     let what;
-    if(day.focus) what = `${day.focus.name} ×${day.focus.amount}${day.focus.mins?` · ${fmtDur(day.focus.mins)}`:''}${day.focus.done?' — done ✓':''}`;
+    if(day.focus) what = `${day.focus.name}${day.focus.stage?` · ${day.focus.stage}`:''} ×${day.focus.amount}${day.focus.mins?` · ${fmtDur(day.focus.mins)}`:''}${day.focus.note||''}`;
     else if(day.mode==='rest') what='Rest';
     else if(day.mode==='off') what='Off';
     else what='Focus night — open';
@@ -849,11 +960,14 @@ function viewPlan(app){
     const fc=el('div',{class:'card'});
     fc.append(el('h3',{},'Deadlines'));
     fin.forEach(f=>{
+      const p=S.projects.find(x=>x.id===f.id);
+      const target = f.stageFinish || f.finish;
+      const label = (p && hasStages(p)) ? `${f.name} · ${curr(p).name}` : f.name;
       let msg, cls='color:var(--good)';
-      if(!f.finish){ msg='won’t finish at this pace'; cls='color:var(--bad)'; }
-      else if(f.finish>f.deadline){ msg=`${daysBetween(f.deadline,f.finish)}d late — done ${dstr(f.finish)}`; cls='color:var(--bad)'; }
-      else { msg=`on track — done ${dstr(f.finish)}`; }
-      fc.append(el('div',{class:'weekrow'},[ el('div',{}, f.name), el('div',{class:'tiny', style:cls}, msg) ]));
+      if(!target){ msg='won’t finish at this pace'; cls='color:var(--bad)'; }
+      else if(target>f.deadline){ msg=`${daysBetween(f.deadline,target)}d late — ${dstr(target)}`; cls='color:var(--bad)'; }
+      else { msg=`on track — ${dstr(target)}`; }
+      fc.append(el('div',{class:'weekrow'},[ el('div',{}, label), el('div',{class:'tiny', style:cls}, msg) ]));
     });
     app.append(fc);
   }
@@ -951,7 +1065,7 @@ function viewSettings(app){
   dm.append(el('div',{class:'row-actions'},[
     el('button',{class:'btn sm', onclick:exportData},'Export backup'),
     el('button',{class:'btn sm', onclick:importData},'Import'),
-    el('button',{class:'del', onclick:()=>{ if(confirm('Erase everything and start over?')){ localStorage.removeItem(KEY); S=load(); render(); } }},'Reset all'),
+    armDelete('Reset all', ()=>{ localStorage.removeItem(KEY); S=load(); buildNav(); render(); onboard(); }),
   ]));
   dm.append(el('div',{class:'faint tiny', style:'margin-top:8px'},'Stored only on this device. Routines and their cadence live in the Routines tab.'));
   app.append(dm);
@@ -966,6 +1080,17 @@ function viewSettings(app){
 }
 
 /* ---------- form helpers ---------- */
+// two-tap delete (native confirm() is unreliable in installed iOS PWAs)
+function armDelete(label, onConfirm, extraClass){
+  const b=el('button',{class:'del'+(extraClass?' '+extraClass:'')}, label);
+  let armed=false, t=null;
+  b.addEventListener('click',()=>{
+    if(armed){ clearTimeout(t); onConfirm(); return; }
+    armed=true; b.textContent='Tap again to confirm';
+    t=setTimeout(()=>{ armed=false; b.textContent=label; }, 3000);
+  });
+  return b;
+}
 function segmented(options, value, onChange){
   const wrap=el('div',{class:'seg'});
   const btns=options.map(([ov,label])=>{
@@ -1013,7 +1138,7 @@ function sheet(title, fields, onSave, onDelete){
   const acts=el('div',{class:'row-actions', style:'margin-top:16px'});
   acts.append(el('button',{class:'btn primary', onclick:()=>{ let ok=true; try{ ok=onSave()!==false; }catch(e){ alert('Couldn’t save: '+e.message); ok=false; } if(ok) closeSheet(); }},'Save'));
   acts.append(el('button',{class:'btn ghost', onclick:closeSheet},'Cancel'));
-  if(onDelete) acts.append(el('button',{class:'del', style:'margin-left:auto', onclick:onDelete},'Delete'));
+  if(onDelete){ const db=armDelete('Delete', onDelete); db.style.marginLeft='auto'; acts.append(db); }
   box.append(acts); dlg.append(box);
   if(typeof dlg.showModal==='function') dlg.showModal();
   else { dlg.setAttribute('open',''); dlg.style.cssText='display:block;position:fixed;inset:auto 0 0 0;z-index:100'; }
@@ -1113,7 +1238,7 @@ function onboard(){
       S.routines.push({id:uid(), name:'Practice a skill', hint:'10 minutes — pick one', cadence:{type:'daily'}, slot:'winddown', priority:'low', skipRest:false, lock:'', kind:'skill', goal:1, oz:0});
     if(st.proj && st.proj.name){
       S.projects.push({id:uid(), name:st.proj.name, deadline:st.proj.deadline||'', unitLabel:st.proj.unit||'part',
-        total:Math.max(1,+st.proj.total||1), done:0, perSession:1, minPerSession:45, priority:'normal', notes:'', subs:[], pinned:false, archived:false, lastWorked:''});
+        total:Math.max(1,+st.proj.total||1), done:0, perSession:1, minPerSession:45, priority:'normal', notes:'', subs:[], stages:[], pinned:false, archived:false, lastWorked:''});
     }
     S.onboarded=true; save(); closeSheet(); render();
   }
