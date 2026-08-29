@@ -350,7 +350,7 @@ function load(){
   return s;
 }
 function migrate(s){
-  ['screen','edmontaskLeft','edmontaskPerSession','rails','waterGoal','bottleOz'].forEach(k=>delete s[k]);
+  ['screen','rails','waterGoal','bottleOz'].forEach(k=>delete s[k]);
   s.counters = s.counters || {};
   s.craft = s.craft || 'other';
   s.sound = !!s.sound;
@@ -359,7 +359,6 @@ function migrate(s){
   s.starts = s.starts || [];
   if(s.activeSession && (!s.activeSession.projectId || !s.activeSession.startedAt)) s.activeSession=null;
   if(s.water){ s.counters.water = Object.assign({}, s.counters.water, s.water); delete s.water; }
-  for(const k in s.week) if(s.week[k]==='edmontask') s.week[k]='project';
   s.projects = (s.projects||[]).map((p,i)=>{ const q=Object.assign({
     id:uid(), name:'', deadline:'', unitLabel:'task', perSession:2, minPerSession:45, priority:'normal', color:PCOLORS[i%PCOLORS.length], notes:'', subs:[], parts:[], pinned:false, archived:false, lastWorked:'', createdAt:'', completedAt:''
   }, p); delete q.active;
@@ -1325,7 +1324,7 @@ function editProject(p){
   drawBody();
 
   sheet(isNew?'New project':'Edit project', [
-    field('Name', `<input id="p_name" value="${esc(D.name)}" placeholder="e.g. Edmontask S3 Live">`),
+    field('Name', `<input id="p_name" value="${esc(D.name)}" placeholder="Name this project">`),
     labeled('Priority', segmented(PRIOS, D.prio, v=>D.prio=v)),
     labeled('Structure', segmented([['flat','One checklist'],['parts','Parts']], D.mode, v=>{ D.mode=v; drawBody(); })),
     bodyBox,
@@ -1406,7 +1405,7 @@ function editRoutine(r){
   drawKind();
 
   sheet(isNew?'New routine':'Edit routine', [
-    field('Name', `<input id="r_name" value="${esc(d.name)}" placeholder="Stretch / Duolingo / Call mom">`),
+    field('Name', `<input id="r_name" value="${esc(d.name)}" placeholder="Stretch / Read / Call a friend">`),
     field('Hint (optional)', `<input id="r_hint" value="${esc(d.hint||'')}" placeholder="before dinner">`),
     labeled('Priority', segmented(PRIOS, prio, v=>prio=v)),
     labeled('When', segmented([['morning','Morning'],['evening','Evening'],['winddown','Wind-down']], slot, v=>slot=v)),
@@ -1975,7 +1974,7 @@ function onboard(){
     if(st.step===0){
       box.append(el('h2',{}, 'Let’s set up.'));
       box.append(el('p',{class:'muted', style:'margin:4px 0 8px'}, 'I hold your whole to-do list and hand you one clear plan each night. First, the basics:'));
-      box.append(field('Your name', `<input id="w_name" value="${esc(st.name)}" placeholder="Kyle">`));
+      box.append(field('Your name', `<input id="w_name" value="${esc(st.name)}" placeholder="Your first name">`));
       box.append(field('What should I go by?', `<input id="w_asst" value="${esc(st.asst)}" placeholder="Jarvis">`));
       box.append(field('What’s your craft?', `<select id="w_craft">${Object.keys(CRAFTS).map(k=>`<option value="${k}"${st.craft===k?' selected':''}>${CRAFTS[k].label}</option>`).join('')}</select>`));
       box.append(field('Wake-up time you’re aiming for', `<input id="w_wake" type="time" value="${st.wake}">`));
@@ -1984,7 +1983,7 @@ function onboard(){
       box.append(el('h2',{}, 'What would you like to fit into your day?'));
       box.append(el('p',{class:'muted', style:'margin:4px 0 10px'}, 'Tap what fits. Cadence and timing are adjustable later in Routines.'));
       box.append(chipRow(RPRE, st.routines));
-      box.append(field('Add your own (comma-separated)', `<input id="w_rc" value="${esc(st.rc)}" placeholder="Duolingo, stretch">`));
+      box.append(field('Add your own (comma-separated)', `<input id="w_rc" value="${esc(st.rc)}" placeholder="Journaling, stretch">`));
     } else if(st.step===2){
       box.append(el('h2',{}, 'Anything you want to get better at?'));
       box.append(el('p',{class:'muted', style:'margin:4px 0 10px'}, 'These become Skills you level up. If you pick any, a nightly “practice a skill” routine is added.'));
@@ -1993,7 +1992,7 @@ function onboard(){
     } else {
       box.append(el('h2',{}, 'A project with a finish line?'));
       box.append(el('p',{class:'muted', style:'margin:4px 0 10px'}, 'Something you’re working toward. Skip if none — add projects anytime.'));
-      box.append(field('Name', `<input id="w_pn" value="${esc(st.proj.name)}" placeholder="Edmontask S3 Live">`));
+      box.append(field('Name', `<input id="w_pn" value="${esc(st.proj.name)}" placeholder="e.g. Podcast — season 2">`));
       box.append(labeled('Structure', segmented([['flat','One checklist'],['parts','Repeating parts']], st.proj.mode, v=>{ capture(); st.proj.mode=v; draw(); })));
       if(st.proj.mode==='flat'){
         box.append(field('Deadline (optional)', `<input id="w_pd" type="date" value="${st.proj.deadline||''}">`));
