@@ -315,6 +315,10 @@
   .pcard .reorder{margin-top:1px}
   .pcard-open{background:none; border:0; padding:0; text-align:left; font-family:var(--display); font-weight:600; font-size:1.15rem; letter-spacing:-.01em; min-width:0; overflow-wrap:anywhere}
   .ted.eddone .ted-t,.tsub.eddone input[type=text]{text-decoration:line-through; opacity:.55}
+  .edbox{width:22px; height:22px; border-radius:6px; flex:none}
+  .edbox.on{background:var(--good); border-color:var(--good)}
+  .edbox.on svg{opacity:1}
+  .tsub .edbox{width:20px; height:20px}
 
   /* history */
   .hrow{display:flex; align-items:center; gap:10px; padding:9px 0; border-bottom:1px solid var(--line)}
@@ -1492,7 +1496,7 @@ function cleanProject(p){
   save();
 }
 // live task/subtask editor rendered onto a page mount
-function taskBoard(mount, p, persist){
+function taskBoard(mount, p, persist, checkable){
   const tasks=p.parts;
   persist = persist || (()=>afterProjectEdit(p));
   function dateChip(o){
@@ -1509,6 +1513,11 @@ function taskBoard(mount, p, persist){
     const wrap=el('div',{class:'ted'+(taskDone(t)?' eddone':'')});
     const head=el('div',{class:'ted-h'});
     head.append(grip());
+    if(checkable && !(t.subs && t.subs.length)){
+      const box=el('div',{class:'box edbox'+(t.complete?' on':''), html:CHECK});
+      box.addEventListener('click',()=>afterTask(p, t, todayISO()));
+      head.append(box);
+    }
     head.append(el('input',{class:'ted-t', value:t.name||'', placeholder:'Task '+(ti+1), oninput:e=>{ t.name=e.target.value; persist(); }}));
     head.append(el('button',{class:'del', style:'flex:none', onclick:()=>{ tasks.splice(ti,1); persist(); draw(); }},'✕'));
     wrap.append(head);
@@ -1523,6 +1532,11 @@ function taskBoard(mount, p, persist){
       (t.subs||[]).forEach((s,si)=>{
         const r=el('div',{class:'tsub'+(s.done?' eddone':'')});
         r.append(grip());
+        if(checkable){
+          const box=el('div',{class:'box edbox'+(s.done?' on':''), html:CHECK});
+          box.addEventListener('click',()=>afterStep(p, s, todayISO()));
+          r.append(box);
+        }
         const col=el('div',{style:'flex:1;min-width:0'});
         col.append(el('input',{type:'text', value:s.text||'', placeholder:'Subtask '+(si+1), oninput:e=>{ s.text=e.target.value; persist(); }}));
         col.append(el('div',{class:'inline', style:'gap:4px;margin-top:4px;flex-wrap:wrap'}, [ dateChip(s) ]));
@@ -1691,10 +1705,10 @@ function viewProject(app){
   }
 
   app.append(el('div',{class:'edlabel'},'Tasks'));
-  app.append(el('div',{class:'faint tiny', style:'margin:-2px 0 6px'},'Drag ⠿ to reorder — top = do first. Open a task to add subtasks. Check things off from Today.'));
+  app.append(el('div',{class:'faint tiny', style:'margin:-2px 0 6px'},'Drag ⠿ or use ▲▼ to reorder — top = do first. Check things off here or from Today.'));
   const mount=el('div',{});
   app.append(mount);
-  taskBoard(mount, p);
+  taskBoard(mount, p, null, true);
 
   app.append(el('div',{class:'edlabel'},'Notes'));
   const nt=el('textarea',{id:'pv_notes', style:'min-height:70px'}, p.notes||'');
