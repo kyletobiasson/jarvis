@@ -1713,9 +1713,11 @@ function viewSettings(app){
     el('div',{class:'greet'},'Settings'), el('div',{class:'sub'},'Set once. Then stop thinking about it.') ]));
 
   const who=el('div',{class:'card'});
-  who.append(el('h3',{},'Names'));
+  who.append(el('h3',{},'About you'));
   who.append(field('Your name', `<input id="s_user" value="${esc(S.user)}">`));
   who.append(field('Assistant name', `<input id="s_asst" value="${esc(S.assistant)}">`));
+  who.append(field('Your craft', `<select id="s_craft">${Object.keys(CRAFTS).map(k=>`<option value="${k}"${S.craft===k?' selected':''}>${CRAFTS[k].label}</option>`).join('')}</select>`));
+  who.append(el('div',{class:'faint tiny', style:'margin-top:2px'},'Sets the words the app uses — parts, wraps, session time.'));
   app.append(who);
 
   const snd=el('div',{class:'card'});
@@ -1763,6 +1765,7 @@ function viewSettings(app){
 
   const bind=(id,fn)=>{ const e=$('#'+id); if(e) e.addEventListener('change',()=>{ fn(e.value); save(); refreshCalc(); render(); }); };
   bind('s_user',v=>S.user=v.trim()||'there'); bind('s_asst',v=>S.assistant=v.trim()||'Jarvis');
+  bind('s_craft',v=>S.craft=CRAFTS[v]?v:'other');
   bind('s_ws',v=>S.workStart=v); bind('s_we',v=>S.workEnd=v);
   bind('s_drive',v=>S.driveMin=+v||0); bind('s_morn',v=>S.morningMin=+v||0);
   bind('s_sleep',v=>S.sleepGoalH=+v||8); bind('s_wake',v=>S.wakeOverride=v);
@@ -1974,7 +1977,7 @@ function onboard(){
       box.append(el('p',{class:'muted', style:'margin:4px 0 8px'}, 'I hold your whole to-do list and hand you one clear plan each night. First, the basics:'));
       box.append(field('Your name', `<input id="w_name" value="${esc(st.name)}" placeholder="Kyle">`));
       box.append(field('What should I go by?', `<input id="w_asst" value="${esc(st.asst)}" placeholder="Jarvis">`));
-      box.append(field('What do you make?', `<select id="w_craft">${Object.keys(CRAFTS).map(k=>`<option value="${k}"${st.craft===k?' selected':''}>${CRAFTS[k].label}</option>`).join('')}</select>`));
+      box.append(field('What’s your craft?', `<select id="w_craft">${Object.keys(CRAFTS).map(k=>`<option value="${k}"${st.craft===k?' selected':''}>${CRAFTS[k].label}</option>`).join('')}</select>`));
       box.append(field('Wake-up time you’re aiming for', `<input id="w_wake" type="time" value="${st.wake}">`));
       box.append(field('When you get home from work', `<input id="w_home" type="time" value="${st.home}">`));
     } else if(st.step===1){
