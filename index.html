@@ -862,7 +862,7 @@ let view='today';
 function buildNav(){
   const n=$('#nav'); n.innerHTML='';
   for(const [id,label,path] of TABS){
-    const on = id===view || (id==='projects' && view==='project') || (id==='you' && (view==='settings'||view==='history'));
+    const on = id===view || (id==='projects' && view==='project') || (id==='you' && ['settings','history','recap'].includes(view));
     n.append(el('button',{class:on?'on':'', onclick:()=>go(id)},[
       el('span',{html:`<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">${path}</svg>`}),
       label,
@@ -876,7 +876,7 @@ function go(v){
 function render(){
   const y=window.scrollY;
   const app=$('#app'); app.innerHTML='';
-  ({today:viewToday,projects:viewProjects,project:viewProject,routines:viewRoutines,skills:viewSkills,plan:viewPlan,you:viewYou,settings:viewSettings,history:viewHistory}[view]||viewToday)(app);
+  ({today:viewToday,projects:viewProjects,project:viewProject,routines:viewRoutines,skills:viewSkills,plan:viewPlan,you:viewYou,settings:viewSettings,history:viewHistory,recap:viewRecap}[view]||viewToday)(app);
   app.append(el('div',{class:'foot'}, S.assistant.toUpperCase()));
   window.scrollTo(0,y);
   setTimeout(()=>{ justTapId=null; }, 380);
@@ -983,6 +983,18 @@ function viewToday(app){
   ]));
   else if(mode==='rest') app.append(section('Tonight',[noteRow('Rest night — a show or nothing. On the plan on purpose.')]));
   else if(mode==='off') app.append(section('Tonight',[noteRow('Night off. Go do something fun and don’t log it.')]));
+
+  // week's-end recap nudge (Fri–Sun evenings)
+  if(evening && dow>=5 && !dayChecks(iso).__recapSeen){
+    const wr=weekRecap();
+    if(!wr.quiet){
+      const rc=el('div',{class:'card', onclick:()=>{ dayChecks(iso).__recapSeen=true; save(); go('recap'); }, style:'cursor:pointer'});
+      rc.append(el('div',{style:'font-weight:650'},'Your week'));
+      rc.append(el('div',{class:'muted tiny', style:'margin-top:4px'},
+        `${wr.done} finished · ${wr.projMin>=60?(wr.projMin/60).toFixed(wr.projMin%60?1:0)+'h':wr.projMin+'m'} in · ${wr.focusNights} focus night${wr.focusNights===1?'':'s'} — tap to look back →`));
+      app.append(rc);
+    }
+  }
 
   // occasional check-in on parked "Planning" projects
   const planning = S.projects.filter(x=>!x.archived && x.priority==='planning');
@@ -2024,6 +2036,12 @@ function viewYou(app){
   lc.append(el('div',{class:'faint tiny', style:'margin-top:5px'}, `${pg.need-pg.into} XP to Level ${pg.level+1}`));
   app.append(lc);
 
+  const wr=weekRecap();
+  app.append(el('button',{class:'btn block', style:'margin:10px 0 2px;justify-content:space-between', onclick:()=>go('recap')},[
+    el('span',{}, 'This week'),
+    el('span',{class:'faint tiny'}, wr.quiet ? 'quiet so far →' : `${wr.done} done · ${wr.projMin>=60?(wr.projMin/60).toFixed(0)+'h':wr.projMin+'m'} in →`),
+  ]));
+
   const projDone=S.projects.filter(p=>p.archived).length;
   const partsDone=S.projects.reduce((t,p)=>t+(p.parts||[]).filter(taskDone).length,0);
   const projHrs=(S.sessions||[]).reduce((t,x)=>t+x.min,0)/60;
@@ -2146,6 +2164,86 @@ function viewSettings(app){
   });
   refreshCalc();
   function refreshCalc(){ const c=$('#s_calc'); if(c) c.textContent=`→ Wake ${fmtHM(wakeMin())} · leave ${fmtHM(leaveMin())} · wind-down ${fmtHM(windDownMin())} · lights out ${fmtHM(asleepMin())}`; }
+}
+
+/* ===== WEEK RECAP ===== */
+function weekStartISO(iso){ const d=new Date(iso+'T00:00'); return addDays(iso, -((d.getDay()+6)%7)); } // Monday
+function weekRecap(startOverride){
+  const today=todayISO(), start=startOverride || weekStartISO(today);
+  const end = startOverride ? addDays(start,6) : today;
+  const inWk = d => d && d>=start && d<=end;
+  const span = daysBetween(start, end)+1;
+  const wrapped = S.projects.filter(p=>p.archived && inWk(p.completedAt));
+  let tasksDone=0, subsDone=0;
+  S.projects.forEach(p=>(p.parts||[]).forEach(t=>{
+    if(inWk(t.completedAt)) tasksDone++;
+    (t.subs||[]).forEach(s=>{ if(inWk(s.completedAt)) subsDone++; });
+  }));
+  const psess=(S.sessions||[]).filter(s=>inWk(s.date));
+  const projMin=psess.reduce((a,s)=>a+s.min,0);
+  const skl=[]; S.skills.forEach(k=>(k.sessions||[]).forEach(s=>{ if(inWk(s.date)) skl.push({name:k.name, min:s.min, color:skillColorVar(k)}); }));
+  const skillMin=skl.reduce((a,s)=>a+s.min,0);
+  const bySkill={}; skl.forEach(s=>{ bySkill[s.name]=(bySkill[s.name]||0)+s.min; });
+  let focusNights=0; for(let i=0;i<span;i++){ if(dayChecks(addDays(start,i)).focus) focusNights++; }
+  const xpWk=(S.xpLog||[]).filter(e=>inWk(e.d) && e.amt>0).reduce((a,e)=>a+e.amt,0);
+  const fins=(simFinishes()||[]).filter(f=>f.partFinish||f.finish)
+    .sort((a,b)=>(a.partFinish||a.finish).localeCompare(b.partFinish||b.finish));
+  return {start, end, span, wrapped, tasksDone, subsDone, projMin, skillMin, bySkill, focusNights, xpWk,
+    sessions:psess.length, done: tasksDone+subsDone, next:fins[0], quiet:(tasksDone+subsDone+wrapped.length+psess.length+skl.length)===0};
+}
+function viewRecap(app){
+  const r=weekRecap();
+  const range = `${new Date(r.start+'T00:00').toLocaleDateString(undefined,{month:'short',day:'numeric'})} – ${new Date(r.end+'T00:00').toLocaleDateString(undefined,{month:'short',day:'numeric'})}`;
+  app.append(el('header',{class:'hero'},[
+    el('button',{class:'btn ghost sm', style:'padding:4px 8px;margin-bottom:8px', onclick:()=>go('you')}, '← You'),
+    el('div',{class:'greet'},'This week'),
+    el('div',{class:'sub'}, range),
+  ]));
+  if(r.quiet){
+    app.append(el('div',{class:'card'},[
+      el('div',{style:'font-weight:650'},'Quiet week so far.'),
+      el('div',{class:'muted tiny', style:'margin-top:5px'},'That’s allowed. Start something small tonight and it counts.'),
+    ]));
+    return;
+  }
+  const big=el('div',{class:'s', style:'grid-column:1/-1'},[
+    el('b',{class:'display', style:'font-size:2.2rem'}, String(r.done)),
+    el('span',{}, `${r.done===1?'thing':'things'} finished${r.wrapped.length?` · ${r.wrapped.length} project${r.wrapped.length===1?'':'s'} wrapped`:''}`),
+  ]);
+  const hrs=m=> m>=60 ? (m/60).toFixed(m%60?1:0)+'h' : m+'m';
+  app.append(el('div',{class:'statgrid'},[
+    big,
+    el('div',{class:'s'},[ el('b',{}, hrs(r.projMin)), el('span',{},'in the work') ]),
+    el('div',{class:'s'},[ el('b',{}, String(r.focusNights)), el('span',{},'focus nights') ]),
+    el('div',{class:'s'},[ el('b',{}, hrs(r.skillMin)), el('span',{},'practicing') ]),
+    el('div',{class:'s'},[ el('b',{}, '+'+r.xpWk), el('span',{},'XP this week') ]),
+  ]));
+  if(r.wrapped.length){
+    const c=el('div',{class:'card'});
+    c.append(el('h3',{},'Wrapped'));
+    r.wrapped.forEach(p=> c.append(el('div',{class:'weekrow'},[
+      el('div',{class:'inline', style:'gap:8px'},[ el('span',{class:'sdot', style:`background:${projColorVar(p)}`}), el('div',{}, p.name) ]),
+      el('div',{class:'tiny faint'}, dstr(p.completedAt)),
+    ])));
+    app.append(c);
+  }
+  if(Object.keys(r.bySkill).length){
+    const c=el('div',{class:'card'});
+    c.append(el('h3',{},'Practice'));
+    Object.entries(r.bySkill).sort((a,b)=>b[1]-a[1]).forEach(([n,m])=> c.append(el('div',{class:'weekrow'},[
+      el('div',{}, n), el('div',{class:'tiny faint'}, fmtDur(m)),
+    ])));
+    app.append(c);
+  }
+  if(r.next){
+    const p=S.projects.find(x=>x.id===r.next.id);
+    const c=el('div',{class:'card'});
+    c.append(el('div',{class:'faint tiny'},'Finishing next'));
+    c.append(el('div',{style:'font-weight:650;margin-top:2px'},
+      `${r.next.name}${p&&hasParts(p)?' · '+curr(p).name:''}`));
+    c.append(el('div',{class:'muted tiny', style:'margin-top:2px'}, dstr(r.next.partFinish||r.next.finish)));
+    app.append(c);
+  }
 }
 
 /* ===== HISTORY ===== */
