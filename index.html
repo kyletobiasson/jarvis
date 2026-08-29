@@ -119,6 +119,7 @@
   .ssbtn.stop{background:var(--accent);border-color:var(--accent);color:var(--accent-ink);margin-left:7px}
   .startbtn.paused{background:var(--surface-2)}
   .startbtn.paused .dot{animation:none;opacity:.35}
+  .startbtn.quiet{background:var(--surface-2); color:var(--muted); font-weight:650}
 
   /* evening ribbon */
   .ribbon{display:flex; gap:5px; margin:14px 0 2px}
@@ -923,10 +924,10 @@ function viewToday(app){
   const allClear = eveP===100 && wdP===100;
 
   // momentum line
-  const pg=xpProg(S.xp), stk=bestStreak(), xpt=xpToday();
+  const pg=xpProg(S.xp), fstk=focusStreak(), xpt=xpToday();
   const mo=el('div',{class:'mo', onclick:()=>go('you')});
   mo.append(el('span',{class:'chip2 xp'}, `⭐ Lv ${pg.level}`));
-  if(stk>1) mo.append(el('span',{class:'chip2 streak'}, `\u{1f525} ${stk}`));
+  if(fstk>1) mo.append(el('span',{class:'chip2 streak'}, `\u{1f525} ${fstk} night${fstk===1?'':'s'}`));
   if(xpt>0) mo.append(el('span',{class:'chip2'}, `+${xpt} today`));
   mo.append(el('div',{class:'xpbar'},[ el('i',{style:`width:${pg.pct}%`}) ]));
   app.append(mo);
@@ -988,7 +989,15 @@ function viewToday(app){
     app.append(ec);
   }
 
-  if(fp) app.append(autoFocusCard(fp, iso));
+  const slM=((asleepMin()%1440)+1440)%1440;
+  const lateNight = evening && (nowMin>=slM || (slM>1200 && nowMin<300));
+  if(lateNight && fp && !(S.activeSession && S.activeSession.projectId===fp.project.id)){
+    app.append(el('div',{class:'row note', style:'display:block;border-color:var(--warn)'},[
+      el('div',{style:'font-weight:650'}, '🌙 Past lights-out'),
+      el('div',{class:'muted tiny', style:'margin-top:2px'}, `It’s past ${fmtHM(asleepMin())}. Whatever’s left will keep — a rested start beats a tired push.`),
+    ]));
+  }
+  if(fp) app.append(autoFocusCard(fp, iso, lateNight));
   else if(mode==='project' && !out) app.append(el('div',{class:'card'},[
     el('div',{style:'font-weight:650'},'Focus night — nothing queued'),
     el('div',{class:'muted tiny', style:'margin:6px 0 10px'},'No projects with work left.'),
@@ -1177,7 +1186,12 @@ function stopSession(silent){
     if(S.sessions.length>400) S.sessions=S.sessions.slice(-400);
     p.lastWorked=d;
     award(mins, `${p.name} — ${fmtDur(mins)} on ${craft().body}`);
-    if(mins>=3) dayChecks(d).focus=true;
+    if(mins>=3){
+      const first=!dayChecks(d).focus;
+      dayChecks(d).focus=true;
+      if(first){ const fs=focusStreak(); if([3,7,14,30,50,100].includes(fs))
+        _pendingCele={kicker:'Streak', big:fs+' nights running', sub:'Showing up is the whole thing.'}; }
+    }
   }
   if(!silent){ checkDayCleared(todayISO()); save(); render(); flushCele(); }
   else save();
@@ -1215,7 +1229,7 @@ function ensureTick(){ if(_tick || !sessionRunning()) return; _tick=setInterval(
 function stopTick(){ if(_tick){ clearInterval(_tick); _tick=null; } }
 function minsToday(pid){ const d=todayISO(); return (S.sessions||[]).filter(x=>x.date===d && x.projectId===pid).reduce((t,x)=>t+x.min,0); }
 
-function autoFocusCard(fp, iso){
+function autoFocusCard(fp, iso, quiet){
   const p=fp.project, st=fp.part, cw=curr(p);
   const c=el('div',{class:'card focuscard'});
   c.style.setProperty('--pc', projColorVar(p));
@@ -1232,6 +1246,7 @@ function autoFocusCard(fp, iso){
   const meta=el('div',{class:'inline', style:'gap:7px;margin:9px 0 0;flex-wrap:wrap'});
   const dl=deadlineTag(deadlineOf(p), deadlineTimeOf(p)); if(dl) meta.append(dl);
   if(S.focus && S.focus.id===p.id) meta.append(el('span',{class:'badge ok'},'\u{1f3af} focus'));
+  { const fs=focusStreak(); if(fs>=2) meta.append(el('span',{class:'badge'}, `\u{1f525} ${fs} night${fs===1?'':'s'}`)); }
   if(p.priority!=='medium') meta.append(el('span',{class:'badge'}, pprioLabel(p.priority)));
   if(p.type) meta.append(el('span',{class:'badge'}, p.type));
   const mt=minsToday(p.id); if(mt) meta.append(el('span',{class:'badge'}, `${fmtDur(mt)} today`));
@@ -1283,9 +1298,9 @@ function autoFocusCard(fp, iso){
     bar.append(el('button',{class:'ssbtn stop', onclick:()=>stopSession(false)}, 'Stop'));
     c.append(bar);
   } else {
-    const sb=el('button',{class:'startbtn'});
+    const sb=el('button',{class:'startbtn'+(quiet?' quiet':'')});
     sb.append(el('span',{class:'tri'},'▶'));
-    sb.append(el('span',{}, S.activeSession ? 'Switch here & start' : 'Start'));
+    sb.append(el('span',{}, quiet ? 'Start anyway' : (S.activeSession ? 'Switch here & start' : 'Start')));
     sb.addEventListener('click',()=>startSession(p));
     c.append(sb);
   }
@@ -1457,6 +1472,18 @@ function projectCard(p, iso, isNext, canDrag){
   return c;
 }
 function bestStreak(){ return S.routines.reduce((m,r)=>Math.max(m, routineStreak(r)), 0); }
+// consecutive days with a logged focus session — rest/off nights don't break it, today gets grace
+function focusStreak(){
+  let n=0;
+  for(let i=0;i<200;i++){
+    const d=new Date(); d.setDate(d.getDate()-i);
+    const iso=todayISO(d);
+    if((S.checks[iso]||{}).focus){ n++; continue; }
+    if(i===0) continue;
+    if(weekMode(d.getDay())==='project') break;
+  }
+  return n;
+}
 function chooseFocus(p){
   let lvl=2;
   sheet('\u{1f3af} Focus: '+p.name, [
@@ -2254,10 +2281,11 @@ function weekRecap(startOverride){
 function viewRecap(app){
   const r=weekRecap();
   const range = `${new Date(r.start+'T00:00').toLocaleDateString(undefined,{month:'short',day:'numeric'})} – ${new Date(r.end+'T00:00').toLocaleDateString(undefined,{month:'short',day:'numeric'})}`;
+  const fs=focusStreak();
   app.append(el('header',{class:'hero'},[
     el('button',{class:'btn ghost sm', style:'padding:4px 8px;margin-bottom:8px', onclick:()=>go('you')}, '← You'),
     el('div',{class:'greet'},'This week'),
-    el('div',{class:'sub'}, range),
+    el('div',{class:'sub'}, range + (fs>=2 ? ` · 🔥 ${fs}-night streak` : '')),
   ]));
   if(r.quiet){
     app.append(el('div',{class:'card'},[
