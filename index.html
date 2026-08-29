@@ -4,27 +4,37 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Jarvis</title>
-<meta name="theme-color" content="#111318">
+<meta name="theme-color" content="#15110D">
 <link rel="manifest" href="manifest.webmanifest">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="Jarvis">
 <link rel="apple-touch-icon" href="icon-180.png">
 <link rel="icon" href="icon.svg" type="image/svg+xml">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600&display=swap">
 <style>
   :root{
-    --bg:#0f1115; --surface:#171a21; --surface-2:#1e222b; --line:#2a2f3a;
-    --text:#e8eaf0; --muted:#9aa2b1; --faint:#6b7280;
-    --accent:#7aa2ff; --accent-ink:#0b1220;
-    --good:#43c59e; --warn:#e0b453; --bad:#e0685f;
+    /* dark-first: this is the primary look, light below */
+    --bg:#15110D; --surface:#1D1812; --surface-2:#252017; --line:#332C21;
+    --text:#EFE7D9; --muted:#A79C8A; --faint:#746A5B;
+    --accent:#E8A33D; --accent-ink:#1c1408;
+    --good:#63B88C; --warn:#E0954A; --bad:#D0796A;
+    --p-teal:#4FB0A5; --p-coral:#E27A6A; --p-violet:#9B8BD4;
+    --p-sage:#93AC7E; --p-slate:#6E8CB0; --p-rose:#D07CA0;
+    --display:"Fraunces",Georgia,"Times New Roman",serif;
     --radius:16px; --tap:48px;
     --safe-b: env(safe-area-inset-bottom, 0px);
   }
   @media (prefers-color-scheme: light){
     :root{
-      --bg:#f4f5f8; --surface:#ffffff; --surface-2:#eef0f4; --line:#e0e3ea;
-      --text:#1c1f26; --muted:#5b6472; --faint:#8a93a2;
-      --accent:#3860e0; --accent-ink:#ffffff;
+      --bg:#FBFAF7; --surface:#FFFFFF; --surface-2:#F2EFE9; --line:#E5E0D6;
+      --text:#241F18; --muted:#6A6157; --faint:#9C9488;
+      --accent:#B26A12; --accent-ink:#FFFFFF;
+      --good:#3C875D; --warn:#A9631A; --bad:#B4503E;
+      --p-teal:#3E9187; --p-coral:#C9604E; --p-violet:#7A6BB8;
+      --p-sage:#6E8A57; --p-slate:#5476A0; --p-rose:#B25A7E;
     }
   }
   *{box-sizing:border-box; -webkit-tap-highlight-color:transparent}
@@ -44,13 +54,14 @@
   h1,h2,h3{margin:0; font-weight:650; line-height:1.25}
   h2{font-size:1.05rem}
   h3{font-size:1rem}
+  .display{font-family:var(--display); font-weight:600; letter-spacing:-.01em}
   .muted{color:var(--muted)} .faint{color:var(--faint)}
   button{font:inherit; color:inherit; cursor:pointer}
   .card{background:var(--surface); border:1px solid var(--line); border-radius:var(--radius); padding:14px; margin:12px 0}
 
   header.hero{padding:20px 0 4px}
-  .hero .greet{font-size:1.5rem; font-weight:680}
-  .hero .sub{color:var(--muted); margin-top:2px; font-size:.95rem}
+  .hero .greet{font-family:var(--display); font-size:1.9rem; font-weight:600; letter-spacing:-.02em; line-height:1.05}
+  .hero .sub{color:var(--muted); margin-top:5px; font-size:.95rem}
   .clockline{display:flex; gap:8px; flex-wrap:wrap; margin-top:12px}
   .pill{background:var(--surface-2); border:1px solid var(--line); border-radius:999px; padding:5px 11px; font-size:.82rem; color:var(--muted); white-space:nowrap}
   .pill b{color:var(--text); font-weight:600}
@@ -86,8 +97,8 @@
   .dot{width:7px;height:7px;border-radius:50%;flex:0 0 auto}
   .dot.must{background:var(--bad)} .dot.normal{background:var(--accent)} .dot.low{background:var(--faint)}
 
-  .focuscard{border-color:var(--accent); box-shadow:0 0 0 1px var(--accent) inset}
-  .focuscard .t{font-size:1.05rem}
+  .focuscard{border-color:var(--pc,var(--accent)); box-shadow:0 0 0 1px var(--pc,var(--accent)) inset}
+  .focuscard .t{font-family:var(--display); font-weight:600; font-size:1.2rem; letter-spacing:-.01em}
   .badge{font-size:.72rem; font-weight:650; padding:2px 8px; border-radius:999px; background:var(--surface-2); border:1px solid var(--line); white-space:nowrap}
   .badge.soon{color:var(--warn); border-color:var(--warn)}
   .badge.over{color:var(--bad); border-color:var(--bad)}
@@ -128,15 +139,15 @@
   .celebrate{position:fixed; inset:0; z-index:200; display:grid; place-items:center; background:rgba(6,8,12,.72);
     backdrop-filter:blur(3px); text-align:center; padding:24px; animation:fade .25s ease}
   @keyframes fade{from{opacity:0}to{opacity:1}}
-  .celebrate .big{font-size:2.4rem; font-weight:800; letter-spacing:.02em}
-  .celebrate .sub2{color:var(--muted); margin-top:8px; font-size:1rem}
-  .celebrate .kicker{color:var(--accent); font-weight:700; letter-spacing:.14em; font-size:.85rem; text-transform:uppercase}
+  .celebrate .big{font-family:var(--display); font-size:2.6rem; font-weight:600; letter-spacing:-.01em; line-height:1.08; max-width:14ch}
+  .celebrate .sub2{color:var(--muted); margin-top:10px; font-size:1rem}
+  .celebrate .kicker{color:var(--accent); font-weight:700; letter-spacing:.16em; font-size:.8rem; text-transform:uppercase}
   .conf{position:fixed; inset:0; z-index:199; overflow:hidden; pointer-events:none}
   .conf i{position:absolute; top:-12px; width:9px; height:14px; border-radius:2px; animation:drop linear forwards}
   @keyframes drop{to{transform:translateY(110vh) rotate(720deg)}}
 
   .lvlcard{background:var(--surface); border:1px solid var(--line); border-radius:var(--radius); padding:16px; margin:12px 0}
-  .lvlcard .lv{font-size:1.6rem; font-weight:800}
+  .lvlcard .lv{font-family:var(--display); font-size:1.8rem; font-weight:600; letter-spacing:-.01em}
   .statgrid{display:grid; grid-template-columns:1fr 1fr; gap:10px; margin-top:12px}
   .statgrid .s{background:var(--surface-2); border:1px solid var(--line); border-radius:12px; padding:11px}
   .statgrid .s b{display:block; font-size:1.3rem; font-weight:750}
@@ -224,18 +235,36 @@ const WD=['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'
 const WD1=['S','M','T','W','T','F','S'];
 const PRIOS=[['must','Must'],['normal','Normal'],['low','Low']];
 function prW(p){ return p==='must'?3:p==='low'?1:2; }
+const PCOLORS=['coral','teal','violet','sage','slate','rose'];
+function projColorVar(p){ return `var(--p-${(p&&p.color)||'slate'})`; }
+function nextColor(){
+  const used=new Set((S.projects||[]).filter(p=>!p.archived).map(p=>p.color));
+  return PCOLORS.find(c=>!used.has(c)) || PCOLORS[(S.projects||[]).length % PCOLORS.length];
+}
+// Craft flavour — keeps the app neutral for any discipline, swaps a few words.
+const CRAFTS={
+  writer:   {label:'Writer',        part:'chapter', wrap:'drafted',    body:'writing'},
+  filmmaker:{label:'Filmmaker',     part:'scene',   wrap:'in the can', body:'the edit'},
+  musician: {label:'Musician',      part:'track',   wrap:'mixed down', body:'the session'},
+  artist:   {label:'Visual artist', part:'piece',   wrap:'finished',   body:'studio time'},
+  photo:    {label:'Photographer',  part:'set',     wrap:'delivered',  body:'the shoot'},
+  designer: {label:'Designer',      part:'screen',  wrap:'shipped',    body:'design time'},
+  maker:    {label:'Maker',         part:'build',   wrap:'built',      body:'shop time'},
+  other:    {label:'Creative',      part:'part',    wrap:'wrapped',    body:'the work'},
+};
+function craft(){ return CRAFTS[S.craft] || CRAFTS.other; }
 
 /* ---------- storage ---------- */
 const KEY='pa.v1';
 // Ships blank. Everything is created on-device via the setup flow and stored in
 // localStorage — nothing personal lives in this file or the repo.
 const DEFAULTS={
-  user:'there', assistant:'Jarvis',
+  user:'there', assistant:'Jarvis', craft:'other',
   workStart:'08:00', driveMin:15, morningMin:30,
   wakeOverride:'', sleepGoalH:8, workEnd:'17:00',
   week:{0:'project',1:'project',2:'rest',3:'project',4:'rest',5:'off',6:'project'},
   projects:[], routines:[], skills:[], events:[], tasks:[], checks:{}, counters:{},
-  xp:0, xpLog:[], focus:null, onboarded:false,
+  sessions:[], xp:0, xpLog:[], focus:null, onboarded:false,
 };
 
 let S = load();
@@ -249,11 +278,14 @@ function load(){
 function migrate(s){
   ['screen','edmontaskLeft','edmontaskPerSession','rails','waterGoal','bottleOz'].forEach(k=>delete s[k]);
   s.counters = s.counters || {};
+  s.craft = s.craft || 'other';
+  s.sessions = s.sessions || [];
   if(s.water){ s.counters.water = Object.assign({}, s.counters.water, s.water); delete s.water; }
   for(const k in s.week) if(s.week[k]==='edmontask') s.week[k]='project';
-  s.projects = (s.projects||[]).map(p=>{ const q=Object.assign({
-    id:uid(), name:'', deadline:'', unitLabel:'task', perSession:2, minPerSession:45, priority:'normal', notes:'', subs:[], parts:[], pinned:false, archived:false, lastWorked:''
+  s.projects = (s.projects||[]).map((p,i)=>{ const q=Object.assign({
+    id:uid(), name:'', deadline:'', unitLabel:'task', perSession:2, minPerSession:45, priority:'normal', color:PCOLORS[i%PCOLORS.length], notes:'', subs:[], parts:[], pinned:false, archived:false, lastWorked:''
   }, p); delete q.active;
+    if(!q.color) q.color=PCOLORS[i%PCOLORS.length];
     const src = q.parts && q.parts.length ? q.parts : (q.stages||[]);
     q.parts = src.map(s=>{
       let subs = (s.subs && s.subs.length) ? s.subs.map(x=>({text:x.text||'', done:!!x.done}))
@@ -1518,9 +1550,9 @@ const SPRE=['Drawing','Writing','Reading','Music','Photography','Cooking','A lan
 function onboard(){
   if(S.onboarded) return;
   const dlg=$('#sheet');
-  const st={ step:0, name:S.user==='there'?'':S.user, asst:S.assistant, wake:'07:15', home:'17:15',
+  const st={ step:0, name:S.user==='there'?'':S.user, asst:S.assistant, craft:S.craft||'other', wake:'07:15', home:'17:15',
              routines:new Set(), rc:'', skills:new Set(), sc:'',
-             proj:{name:'', deadline:'', mode:'flat', flatText:'', base:'Episode', n:0, tmpl:''} };
+             proj:{name:'', deadline:'', mode:'flat', flatText:'', base:'', n:0, tmpl:''} };
   function chipRow(list, set){
     const w=el('div',{class:'chips'});
     list.forEach(item=>{
@@ -1531,7 +1563,7 @@ function onboard(){
     return w;
   }
   function capture(){
-    if(st.step===0){ st.name=$('#w_name').value; st.asst=$('#w_asst').value; st.wake=$('#w_wake').value; st.home=$('#w_home').value; }
+    if(st.step===0){ st.name=$('#w_name').value; st.asst=$('#w_asst').value; if($('#w_craft')) st.craft=$('#w_craft').value; st.wake=$('#w_wake').value; st.home=$('#w_home').value; }
     if(st.step===1){ st.rc=$('#w_rc').value; }
     if(st.step===2){ st.sc=$('#w_sc').value; }
     if(st.step===3){
@@ -1550,6 +1582,7 @@ function onboard(){
       box.append(el('p',{class:'muted', style:'margin:4px 0 8px'}, 'I hold your whole to-do list and hand you one clear plan each night. First, the basics:'));
       box.append(field('Your name', `<input id="w_name" value="${esc(st.name)}" placeholder="Kyle">`));
       box.append(field('What should I go by?', `<input id="w_asst" value="${esc(st.asst)}" placeholder="Jarvis">`));
+      box.append(field('What do you make?', `<select id="w_craft">${Object.keys(CRAFTS).map(k=>`<option value="${k}"${st.craft===k?' selected':''}>${CRAFTS[k].label}</option>`).join('')}</select>`));
       box.append(field('Wake-up time you’re aiming for', `<input id="w_wake" type="time" value="${st.wake}">`));
       box.append(field('When you get home from work', `<input id="w_home" type="time" value="${st.home}">`));
     } else if(st.step===1){
@@ -1571,10 +1604,11 @@ function onboard(){
         box.append(field('Deadline (optional)', `<input id="w_pd" type="date" value="${st.proj.deadline||''}">`));
         box.append(field('To-dos — one per line', `<textarea id="w_pf" style="min-height:110px" placeholder="Draft outline\nWrite it\nEdit\nSend">${esc(st.proj.flatText)}</textarea>`));
       } else {
+        const partWord=CRAFTS[st.craft].part.replace(/^./,c=>c.toUpperCase());
         const g=el('div',{class:'stagerow'});
-        g.append(el('input',{value:st.proj.base, style:'flex:1', placeholder:'Part name', oninput:e=>st.proj.base=e.target.value}));
+        g.append(el('input',{value:st.proj.base||partWord, style:'flex:1', placeholder:'Part name', oninput:e=>st.proj.base=e.target.value}));
         g.append(el('input',{type:'number', min:'1', value:st.proj.n||'', style:'max-width:60px;text-align:center', placeholder:'#', oninput:e=>st.proj.n=Math.max(0,+e.target.value||0)}));
-        box.append(labeled('e.g. “Episode” × 9', g));
+        box.append(labeled(`e.g. “${partWord}” × 9`, g));
         box.append(field('To-dos for each part — one per line', `<textarea id="w_pt" style="min-height:110px" placeholder="Import footage\nSync cameras / audio\nSync video\nEdit\nExport">${esc(st.proj.tmpl)}</textarea>`));
         box.append(field('Overall deadline (optional)', `<input id="w_pd" type="date" value="${st.proj.deadline||''}">`));
       }
@@ -1591,6 +1625,7 @@ function onboard(){
   function finish(){
     S.user=(st.name||'').trim()||'there';
     S.assistant=(st.asst||'').trim()||'Jarvis';
+    S.craft=st.craft||'other';
     if(st.wake) S.wakeOverride=st.wake;
     if(st.home) S.workEnd=fmt24(parseHM(st.home)-S.driveMin);
     [...st.routines, ...st.rc.split(',').map(x=>x.trim()).filter(Boolean)].forEach(name=>{
@@ -1605,10 +1640,11 @@ function onboard(){
       S.routines.push({id:uid(), name:'Practice a skill', hint:'10 minutes — pick one', cadence:{type:'daily'}, slot:'winddown', priority:'low', skipRest:false, lock:'', kind:'skill', goal:1, oz:0});
     if(st.proj && st.proj.name){
       const base={id:uid(), name:st.proj.name, deadline:st.proj.deadline||'', perSession:2, minPerSession:45,
-        priority:'normal', notes:'', subs:[], parts:[], pinned:false, archived:false, lastWorked:''};
+        priority:'normal', color:nextColor(), notes:'', subs:[], parts:[], pinned:false, archived:false, lastWorked:''};
       if(st.proj.mode==='parts' && st.proj.n>0){
         const tpl=textToTodos(st.proj.tmpl);
-        for(let i=1;i<=st.proj.n;i++) base.parts.push({id:uid(), name:`${st.proj.base||'Part'} ${i}`, deadline:'', complete:false,
+        const pb=st.proj.base || CRAFTS[st.craft].part.replace(/^./,c=>c.toUpperCase());
+        for(let i=1;i<=st.proj.n;i++) base.parts.push({id:uid(), name:`${pb} ${i}`, deadline:'', complete:false,
           subs: tpl.length?tpl.map(x=>({...x})):[{text:'Complete', done:false}]});
       } else {
         base.subs = textToTodos(st.proj.flatText);
