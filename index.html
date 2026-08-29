@@ -101,6 +101,7 @@
   .focuscard .t{font-family:var(--display); font-weight:600; font-size:1.3rem; letter-spacing:-.01em; line-height:1.1}
   .nextstep{font-size:1rem; font-weight:600; margin-top:2px}
   .nextstep .lbl{font-size:.72rem; font-weight:600; letter-spacing:.08em; text-transform:uppercase; color:var(--faint); display:block; margin-bottom:1px}
+  .breakdown{background:none; border:0; color:var(--faint); font-size:.74rem; font-weight:600; padding:2px 4px; display:block; margin-top:3px}
 
   /* session timer */
   .startbtn{display:flex; align-items:center; justify-content:center; gap:9px; width:100%; margin-top:13px;
@@ -1048,10 +1049,12 @@ function autoFocusCard(fp, iso){
 
   // the next step
   const next = cw.subs.find(s=>!s.done);
+  const stale = p.lastWorked && daysBetween(p.lastWorked, iso) >= 4;
   if(next){
     c.append(el('div',{class:'nextstep', style:'margin-top:11px'},[
-      el('span',{class:'lbl'}, 'Next step'),
+      el('span',{class:'lbl'}, stale ? 'Stuck here? make it smaller' : 'Next step'),
       el('span',{}, next.text),
+      el('button',{class:'breakdown', onclick:()=>breakDown(p, next)}, 'break it down →'),
     ]));
   } else {
     c.append(el('div',{class:'nextstep', style:'margin-top:11px;color:var(--good)'}, hasParts(p)?`“${cw.name}” is done — tap to close it out`:'All steps done'));
@@ -1078,12 +1081,29 @@ function autoFocusCard(fp, iso){
   cw.subs.slice().sort((a,b)=>a.done-b.done).forEach(s=>{
     const sr=el('div',{class:'sub'+(s.done?' done':'')});
     sr.append(el('div',{class:'box', html:CHECK}));
-    sr.append(el('div',{class:'s'}, s.text));
+    sr.append(el('div',{class:'s', style:'flex:1'}, s.text));
     sr.addEventListener('click',()=>afterStep(p, s, iso));
+    if(!s.done) sr.append(el('button',{class:'breakdown', style:'flex:none', onclick:e=>{ e.stopPropagation(); breakDown(p, s); }}, '⋯'));
     list.append(sr);
   });
   c.append(list);
   return c;
+}
+function breakDown(p, step){
+  let txt='';
+  sheet('Make it smaller', [
+    field('', el('p',{class:'muted', style:'margin:2px 0 4px'}, `Break “${step.text}” into the smallest first moves — the point is to make starting trivial.`)),
+    field('One tiny step per line', `<textarea style="min-height:110px" id="bd_t" placeholder="Open the project file\nWatch the first take\nMark the in-point"></textarea>`),
+  ], ()=>{
+    txt=$('#bd_t').value;
+    const parts=txt.split('\n').map(l=>l.trim()).filter(Boolean);
+    if(!parts.length) return false;
+    const list = curr(p).subs;
+    const i = list.indexOf(step);
+    if(i<0) return false;
+    list.splice(i, 1, ...parts.map(t=>({text:t, done:false})));
+    save(); render(); return true;
+  });
 }
 function partStrip(p){
   const w=el('div',{class:'stagestrip'});
