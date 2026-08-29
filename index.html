@@ -115,6 +115,10 @@
   .startbtn.running .dot{width:8px;height:8px;border-radius:50%;background:var(--accent)}
   @keyframes breathe{0%,100%{opacity:.35;transform:scale(.8)}50%{opacity:1;transform:scale(1.15)}}
   .logtime{background:none;border:0;color:var(--faint);font-size:.78rem;font-weight:600;margin-top:8px;width:100%;text-align:center}
+  .ssbtn{background:var(--surface);border:1px solid var(--line);border-radius:9px;padding:7px 13px;font-weight:750;font-size:.84rem;color:var(--text)}
+  .ssbtn.stop{background:var(--accent);border-color:var(--accent);color:var(--accent-ink);margin-left:7px}
+  .startbtn.paused{background:var(--surface-2)}
+  .startbtn.paused .dot{animation:none;opacity:.35}
 
   /* evening ribbon */
   .ribbon{display:flex; gap:5px; margin:14px 0 2px}
@@ -325,6 +329,8 @@
   .hrow:last-child{border-bottom:0}
   .hdot{width:8px; height:8px; border-radius:50%; flex:0 0 auto}
   .hrow .htype{text-transform:uppercase; letter-spacing:.07em; font-size:.6rem; font-weight:700; color:var(--faint); white-space:nowrap}
+  .hrow.tap{cursor:pointer}
+  .hrow.tap:active{background:var(--surface-2)}
 </style>
 </head>
 <body>
@@ -390,9 +396,15 @@ function migrate(s){
   s.sound = !!s.sound;
   s.remind = Object.assign({winddown:false}, s.remind||{});
   s.planNudge = s.planNudge || '';
-  s.sessions = s.sessions || [];
+  s.sessions = (s.sessions || []).map(x=>Object.assign({id:uid()}, x));
   s.starts = s.starts || [];
-  if(s.activeSession && (!s.activeSession.projectId || !s.activeSession.startedAt)) s.activeSession=null;
+  if(s.activeSession){
+    const a=s.activeSession;
+    if(!a.projectId) s.activeSession=null;
+    else { a.startedAt = a.startedAt || Date.now();
+      if(a.since===undefined) a.since = a.startedAt;   // legacy: was always running
+      if(a.accumMs===undefined) a.accumMs = 0; }
+  }
   if(s.water){ s.counters.water = Object.assign({}, s.counters.water, s.water); delete s.water; }
   s.projects = (s.projects||[]).map((p,i)=>{ const q=Object.assign({
     id:uid(), name:'', type:'', deadline:'', deadlineTime:'', minPerSession:60, priority:'medium',
@@ -430,7 +442,7 @@ function migrate(s){
     id:uid(), name:'', hint:'', cadence:{type:'daily'}, slot:'evening', priority:'normal', skipRest:false, lock:'', kind:'check', goal:1, oz:0
   }, r));
   s.tasks = (s.tasks||[]).map(t=>Object.assign({id:uid(), text:'', due:'', priority:'normal', done:false}, t));
-  s.skills = (s.skills||[]).map((k,i)=>{ const q=Object.assign({id:uid(), name:'', color:PCOLORS[(i+2)%PCOLORS.length], createdAt:todayISO(), sessions:[]}, k); if(!q.color) q.color=PCOLORS[(i+2)%PCOLORS.length]; return q; });
+  s.skills = (s.skills||[]).map((k,i)=>{ const q=Object.assign({id:uid(), name:'', color:PCOLORS[(i+2)%PCOLORS.length], createdAt:todayISO(), sessions:[]}, k); if(!q.color) q.color=PCOLORS[(i+2)%PCOLORS.length]; q.sessions=(q.sessions||[]).map(x=>Object.assign({id:uid()}, x)); return q; });
   s.xp = +s.xp||0; s.xpLog = s.xpLog||[];
   if(s.focus && !(s.projects||[]).some(p=>p.id===s.focus.id)) s.focus=null;
 }
@@ -632,7 +644,7 @@ function skillLastPracticed(k){ const ds=(k.sessions||[]).map(s=>s.date).sort();
 function logSkill(k, min, iso){
   k.sessions=k.sessions||[];
   const m=Math.max(1,Math.round(min||10)), before=skillLevel(k);
-  k.sessions.push({date:iso||todayISO(), min:m});
+  k.sessions.push({id:uid(), date:iso||todayISO(), min:m});
   award(m, 'Practiced '+k.name);
   if(skillLevel(k)>before) _pendingCele={kicker:k.name, big:'Skill Level '+skillLevel(k), sub:'Getting good at this.'};
   save(); render(); flushCele();
@@ -1129,27 +1141,38 @@ function afterTask(p, t, iso){
   checkDayCleared(iso); save(); render(); flushCele();
 }
 
-/* ---- session timer ---- */
+/* ---- session timer (pausable: since = running-segment start or null; accumMs = banked) ---- */
 let _tick=null;
 function activeSessionProject(){ return S.activeSession ? S.projects.find(p=>p.id===S.activeSession.projectId) : null; }
-function sessionMins(){ return S.activeSession ? Math.max(0,(Date.now()-S.activeSession.startedAt)/60000) : 0; }
+function sessionRunning(){ return !!(S.activeSession && S.activeSession.since); }
+function sessionMins(){ if(!S.activeSession) return 0; const a=S.activeSession;
+  return Math.max(0, (a.accumMs + (a.since ? Date.now()-a.since : 0))/60000); }
 function fmtClock(mins){ let s=Math.floor(mins*60); const h=Math.floor(s/3600); s%=3600; const m=Math.floor(s/60); s%=60;
   return (h?h+':':'')+String(m).padStart(h?2:1,'0')+':'+String(s).padStart(2,'0'); }
 function startSession(p){
   if(S.activeSession && S.activeSession.projectId!==p.id) stopSession(true);
-  S.activeSession={projectId:p.id, startedAt:Date.now()};
+  S.activeSession={projectId:p.id, startedAt:Date.now(), since:Date.now(), accumMs:0};
   (S.starts||(S.starts=[])).unshift({ts:Date.now(), projectId:p.id});
   if(S.starts.length>300) S.starts.length=300;
   save(); render(); ensureTick();
+}
+function pauseSession(){
+  const a=S.activeSession; if(!a || !a.since) return;
+  a.accumMs += Date.now()-a.since; a.since=null;
+  stopTick(); save(); render();
+}
+function resumeSession(){
+  const a=S.activeSession; if(!a || a.since) return;
+  a.since=Date.now(); save(); render(); ensureTick();
 }
 function stopSession(silent){
   if(!S.activeSession) return;
   const p=activeSessionProject();
   const mins=Math.max(1, Math.round(sessionMins()));
-  const d=todayISO(new Date(S.activeSession.startedAt));
+  const d=todayISO(new Date(S.activeSession.startedAt||Date.now()));
   S.activeSession=null; stopTick();
   if(p){
-    S.sessions.push({date:d, projectId:p.id, min:mins});
+    S.sessions.push({id:uid(), date:d, projectId:p.id, min:mins});
     if(S.sessions.length>400) S.sessions=S.sessions.slice(-400);
     p.lastWorked=d;
     award(mins, `${p.name} — ${fmtDur(mins)} on ${craft().body}`);
@@ -1162,13 +1185,32 @@ function logSessionManual(p){
   let m=25;
   sheet('Log a session — '+p.name, [ field('How long did you work? (minutes)', numInput(25,v=>m=v)) ], ()=>{
     const d=todayISO();
-    S.sessions.push({date:d, projectId:p.id, min:Math.max(1,Math.round(m))});
+    S.sessions.push({id:uid(), date:d, projectId:p.id, min:Math.max(1,Math.round(m))});
     p.lastWorked=d; award(Math.max(1,Math.round(m)), `${p.name} — ${fmtDur(m)}`);
     if(m>=3) dayChecks(d).focus=true;
     checkDayCleared(d); save(); render(); flushCele(); return true;
   });
 }
-function ensureTick(){ if(_tick || !S.activeSession) return; _tick=setInterval(()=>{ if(view==='today'){ const c=document.querySelector('.startbtn .clock'); if(c) c.textContent=fmtClock(sessionMins()); } }, 1000); }
+function editSession(sess){
+  let m=sess.min;
+  const label = sess.skillId ? (S.skills.find(k=>k.id===sess.skillId)||{}).name : (S.projects.find(x=>x.id===sess.projectId)||{}).name;
+  sheet('Edit logged time', [
+    field('', el('p',{class:'muted tiny', style:'margin:0 0 4px'}, `${label||'Session'} · ${dstr(sess.date)}`)),
+    field('Minutes', numInput(sess.min, v=>m=v)),
+  ], ()=>{
+    const nm=Math.max(1, Math.round(m));
+    const arr = sess.skillId ? (S.skills.find(k=>k.id===sess.skillId)||{}).sessions : S.sessions;
+    const row = (arr||[]).find(x=>x.id===sess.id); if(!row) return false;
+    S.xp = Math.max(0, S.xp + (nm - row.min));   // adjust XP by the delta, silently
+    row.min = nm; save(); render(); return true;
+  }, ()=>{
+    const arr = sess.skillId ? (S.skills.find(k=>k.id===sess.skillId)||{}).sessions : S.sessions;
+    const i = (arr||[]).findIndex(x=>x.id===sess.id); if(i<0) return;
+    S.xp = Math.max(0, S.xp - arr[i].min);
+    arr.splice(i,1); save(); closeSheet(); render();
+  }, {centered:true});
+}
+function ensureTick(){ if(_tick || !sessionRunning()) return; _tick=setInterval(()=>{ if(view==='today'){ const c=document.querySelector('.startbtn .clock'); if(c) c.textContent=fmtClock(sessionMins()); } }, 1000); }
 function stopTick(){ if(_tick){ clearInterval(_tick); _tick=null; } }
 function minsToday(pid){ const d=todayISO(); return (S.sessions||[]).filter(x=>x.date===d && x.projectId===pid).reduce((t,x)=>t+x.min,0); }
 
@@ -1229,20 +1271,23 @@ function autoFocusCard(fp, iso){
     c.append(el('div',{class:'nextstep', style:'margin-top:11px;color:var(--good)'}, `“${cw.name}” is done — tap to close it out`));
   }
 
-  // Start / running
-  const sb=el('button',{class:'startbtn'+(running?' running':'')});
+  // Start / running / paused
   if(running){
-    sb.append(el('span',{class:'dot'}));
-    sb.append(el('span',{}, 'Working'));
-    sb.append(el('span',{class:'clock'}, fmtClock(sessionMins())));
-    sb.append(el('span',{style:'font-weight:800;margin-left:auto'}, 'Stop'));
-    sb.addEventListener('click',()=>stopSession(false));
+    const paused = !sessionRunning();
+    const bar=el('div',{class:'startbtn running'+(paused?' paused':'')});
+    bar.append(el('span',{class:'dot'}));
+    bar.append(el('span',{}, paused?'Paused':'Working'));
+    bar.append(el('span',{class:'clock'}, fmtClock(sessionMins())));
+    bar.append(el('button',{class:'ssbtn', style:'margin-left:auto', onclick: paused?resumeSession:pauseSession}, paused?'Resume':'Pause'));
+    bar.append(el('button',{class:'ssbtn stop', onclick:()=>stopSession(false)}, 'Stop'));
+    c.append(bar);
   } else {
+    const sb=el('button',{class:'startbtn'});
     sb.append(el('span',{class:'tri'},'▶'));
     sb.append(el('span',{}, S.activeSession ? 'Switch here & start' : 'Start'));
     sb.addEventListener('click',()=>startSession(p));
+    c.append(sb);
   }
-  c.append(sb);
   const lt=el('div',{class:'inline', style:'gap:12px;justify-content:center;margin-top:8px;flex-wrap:wrap'});
   lt.append(el('button',{class:'logtime', style:'width:auto;margin:0', onclick:()=>logSessionManual(p)}, 'log time manually'));
   if(!(S.focus && S.focus.id===p.id) && liveProjects().filter(x=>!skipTonight.has(x.id)).length>1)
@@ -2273,10 +2318,10 @@ function historyEntries(){
     E.push({ts:x.ts, date:d, type:'started', pid:x.projectId, text:`Started a session — ${pName(x.projectId)}`});
   });
   (S.sessions||[]).forEach(s=>{
-    E.push({ts:noon(s.date)+2, date:s.date, type:'logged', pid:s.projectId, text:`${pName(s.projectId)} — ${fmtDur(s.min)}`, sub:`on ${craft().body}`});
+    E.push({ts:noon(s.date)+2, date:s.date, type:'logged', pid:s.projectId, text:`${pName(s.projectId)} — ${fmtDur(s.min)}`, sub:`on ${craft().body}`, sess:s});
   });
   (S.skills||[]).forEach(k=>(k.sessions||[]).forEach(s=>{
-    E.push({ts:noon(s.date)+2, date:s.date, type:'logged', sid:k.id, text:`${k.name} — ${fmtDur(s.min)}`, sub:'practice'});
+    E.push({ts:noon(s.date)+2, date:s.date, type:'logged', sid:k.id, text:`${k.name} — ${fmtDur(s.min)}`, sub:'practice', sess:Object.assign({skillId:k.id}, s)});
   }));
   return E.sort((a,b)=>b.ts-a.ts);
 }
@@ -2311,11 +2356,13 @@ function viewHistory(app){
     const mid=el('div',{style:'flex:1;min-width:0'});
     mid.append(el('div',{class:e.small?'tiny':'', style:'font-weight:600'+(e.small?';color:var(--muted)':'')}, e.text));
     if(e.sub) mid.append(el('div',{class:'faint tiny'}, e.sub));
-    card.append(el('div',{class:'hrow'},[
+    const rowEl=el('div',{class:'hrow'+(e.sess?' tap':'')},[
       el('span',{class:'hdot', style:`background:${col}`}),
       mid,
-      el('span',{class:'htype'}, e.type),
-    ]));
+      el('span',{class:'htype'}, e.sess?'edit ›':e.type),
+    ]);
+    if(e.sess) rowEl.addEventListener('click',()=>editSession(e.sess));
+    card.append(rowEl);
   });
 }
 
