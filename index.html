@@ -180,10 +180,22 @@
   .divider{height:1px; background:var(--line); margin:16px 0}
   .bar{height:6px; border-radius:999px; background:var(--surface-2); overflow:hidden; margin-top:8px}
   .bar>i{display:block; height:100%; background:var(--accent)}
-  .planday{display:flex; gap:10px; padding:9px 0; border-bottom:1px solid var(--line); font-size:.9rem}
-  .planday:last-child{border-bottom:0}
-  .planday .dow{width:64px; flex:0 0 auto; color:var(--muted); font-weight:600}
-  .planday.rest .what{color:var(--faint)}
+  .hl{background:var(--surface-2)}
+  .weekstrip{display:flex; gap:5px; margin-top:12px}
+  .wk{flex:1; height:40px; border-radius:9px; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:3px; font-size:.7rem; font-weight:700}
+  .wk.focus{background:var(--accent); color:var(--accent-ink)}
+  .wk.open{background:var(--surface); color:var(--muted); border:1px solid var(--line)}
+  .wk.rest{background:var(--surface); color:var(--faint); border:1px solid var(--line)}
+  .wk.off{border:1px dashed var(--line); color:var(--faint)}
+  .wk.today{box-shadow:0 0 0 2px var(--text)}
+  .wk .wdot{width:4px; height:4px; border-radius:50%; background:currentColor}
+  .agrow{display:flex; gap:11px; padding:11px 0; border-bottom:1px solid var(--line)}
+  .agrow:last-child{border-bottom:0}
+  .agrow .marker{width:3px; border-radius:2px; flex:0 0 auto; background:var(--line)}
+  .agrow .marker.focus{background:var(--accent)}
+  .agrow .marker.rest,.agrow .marker.open{background:var(--surface-2)}
+  .agrow .marker.off{background:transparent}
+  .sdot{width:8px; height:8px; border-radius:50%; flex:0 0 auto}
   .stagestrip{display:flex; flex-direction:column; gap:4px; margin:10px 0 2px; border-left:2px solid var(--line); padding-left:10px}
   .stg{font-size:.85rem; color:var(--faint); display:flex; gap:7px; align-items:center}
   .stg .stgdot{width:14px; text-align:center; font-weight:700}
@@ -1183,25 +1195,54 @@ function editSkill(k){
 
 /* ===== PLAN ===== */
 function viewPlan(app){
-  app.append(el('header',{class:'hero'},[ el('div',{class:'greet'},'Plan'), el('div',{class:'sub'},'The next 10 days, projected from today’s numbers. Changes when anything does.') ]));
-
-  const {out} = buildProjection(10);
+  const {out} = buildProjection(14);
   const finishes = simFinishes() || [];
-  const pc=el('div',{class:'card'});
-  out.forEach(day=>{
-    const row=el('div',{class:'planday'+(day.mode!=='project'||!day.focus?' rest':'')});
-    row.append(el('div',{class:'dow'}, day.iso===todayISO()?'Today':new Date(day.iso+'T00:00').toLocaleDateString(undefined,{weekday:'short',month:'numeric',day:'numeric'})));
-    let what;
-    if(day.focus) what = `${day.focus.name}${day.focus.part?` · ${day.focus.part}`:''} · ${day.focus.amount} ${day.focus.unit}${day.focus.mins?` · ${fmtDur(day.focus.mins)}`:''}${day.focus.note||''}`;
-    else if(day.mode==='rest') what='Rest';
-    else if(day.mode==='off') what='Off';
-    else what='Focus night — open';
-    const w=el('div',{class:'what', style:'flex:1'}, what);
-    if(day.events.length) w.append(el('div',{class:'faint tiny'}, '• '+day.events.join(', ')));
-    row.append(w);
-    pc.append(row);
+  app.append(el('header',{class:'hero'},[ el('div',{class:'greet'},'Plan'), el('div',{class:'sub'},'How the next two weeks shake out. Recalculates when anything changes.') ]));
+
+  // headline + 7-day strip
+  const wk7=out.slice(0,7);
+  const fN=wk7.filter(d=>d.mode==='project'&&d.focus).length;
+  const hrs=wk7.reduce((t,d)=>t+(d.focus?d.focus.mins:0),0)/60;
+  const nextFin=finishes.filter(f=>f.partFinish||f.finish).sort((a,b)=>((a.partFinish||a.finish)).localeCompare(b.partFinish||b.finish))[0];
+  const hl=el('div',{class:'card hl'});
+  hl.append(el('div',{class:'faint tiny'},'Next 7 days'));
+  hl.append(el('div',{style:'font-weight:750;font-size:1.1rem;margin-top:2px'}, `${fN} focus night${fN===1?'':'s'} · ~${hrs<1?Math.round(hrs*60)+' min':hrs.toFixed(1)+' hrs'}`));
+  if(nextFin){
+    const p=S.projects.find(x=>x.id===nextFin.id);
+    hl.append(el('div',{class:'muted tiny', style:'margin-top:3px'},
+      `finishing next: ${nextFin.name}${p&&hasParts(p)?' · '+curr(p).name:''} — ${dstr(nextFin.partFinish||nextFin.finish)}`));
+  }
+  const strip=el('div',{class:'weekstrip'});
+  wk7.forEach(d=>{
+    const cls = (d.mode==='project'&&d.focus)?'focus' : d.mode==='project'?'open' : d.mode==='rest'?'rest':'off';
+    strip.append(el('div',{class:'wk '+cls+(d.iso===todayISO()?' today':'')},[
+      el('span',{}, WD1[d.dow]),
+      d.events.length ? el('span',{class:'wdot'}) : null,
+    ]));
   });
-  app.append(pc);
+  hl.append(strip);
+  app.append(hl);
+
+  // agenda
+  const ag=el('div',{class:'card'});
+  out.forEach(d=>{
+    const type = (d.mode==='project'&&d.focus)?'focus' : d.mode==='rest'?'rest' : d.mode==='off'?'off':'open';
+    const row=el('div',{class:'agrow'});
+    row.append(el('div',{class:'marker '+type}));
+    const mid=el('div',{style:'flex:1;min-width:0'});
+    mid.append(el('div',{style:'font-weight:650;font-size:.8rem;color:var(--muted)'},
+      d.iso===todayISO()?'Today':new Date(d.iso+'T00:00').toLocaleDateString(undefined,{weekday:'long',month:'short',day:'numeric'})));
+    if(d.focus){
+      mid.append(el('div',{style:'font-weight:600;margin-top:1px'}, d.focus.name + (d.focus.part?' · '+d.focus.part:'')));
+      mid.append(el('div',{class:'faint tiny'}, `${d.focus.amount} ${d.focus.unit} · ${fmtDur(d.focus.mins)}${d.focus.note||''}`));
+    } else {
+      mid.append(el('div',{class:'faint', style:'margin-top:1px'}, d.mode==='rest'?'Rest night' : d.mode==='off'?'Off' : 'Focus night — open'));
+    }
+    d.events.forEach(ev=> mid.append(el('div',{class:'tiny', style:'color:var(--accent);margin-top:2px'}, '\u{1f4c5} '+ev)));
+    row.append(mid);
+    ag.append(row);
+  });
+  app.append(ag);
 
   const fin=finishes.filter(f=>f.deadline);
   if(fin.length){
@@ -1211,21 +1252,28 @@ function viewPlan(app){
       const p=S.projects.find(x=>x.id===f.id);
       const target = f.partFinish || f.finish;
       const label = (p && hasParts(p)) ? `${f.name} · ${curr(p).name}` : f.name;
-      let msg, cls='color:var(--good)';
-      if(!target){ msg='won’t finish at this pace'; cls='color:var(--bad)'; }
-      else if(target>f.deadline){ msg=`${daysBetween(f.deadline,target)}d late — ${dstr(target)}`; cls='color:var(--bad)'; }
-      else { msg=`on track — ${dstr(target)}`; }
-      fc.append(el('div',{class:'weekrow'},[ el('div',{}, label), el('div',{class:'tiny', style:cls}, msg) ]));
+      let color='var(--good)', txt;
+      if(!target){ color='var(--bad)'; txt='won’t finish'; }
+      else if(target>f.deadline){ color='var(--bad)'; txt=`${daysBetween(f.deadline,target)}d late`; }
+      else if(daysBetween(todayISO(),f.deadline)<=7){ color='var(--warn)'; txt='done '+dstr(target); }
+      else txt='done '+dstr(target);
+      fc.append(el('div',{class:'weekrow'},[
+        el('div',{class:'inline', style:'gap:8px;min-width:0'},[ el('span',{class:'sdot', style:`background:${color}`}), el('div',{style:'min-width:0'}, label) ]),
+        el('div',{class:'tiny', style:`color:${color};white-space:nowrap`}, txt),
+      ]));
     });
     app.append(fc);
   }
+
+  app.append(el('div',{class:'divider'}));
+  app.append(el('h2',{class:'hpad', style:'margin-bottom:2px'},'Setup'));
 
   const modes={project:'Focus night', rest:'Rest night', off:'Off'};
   const wc=el('div',{class:'card'});
   wc.append(el('h3',{},'Week shape'));
   for(let i=1;i<=6;i++) wc.append(weekRow(i,modes));
   wc.append(weekRow(0,modes));
-  wc.append(el('div',{class:'faint tiny', style:'margin-top:10px'}, `${focusNightsPerWeek()} focus nights a week.`));
+  wc.append(el('div',{class:'faint tiny', style:'margin-top:10px'}, `${focusNightsPerWeek()} focus nights a week${focusActive()?' (Focus Mode is bumping this)':''}.`));
   app.append(wc);
 
   const cm=el('div',{class:'card'});
