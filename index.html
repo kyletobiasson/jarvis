@@ -98,7 +98,33 @@
   .dot.must{background:var(--bad)} .dot.normal{background:var(--accent)} .dot.low{background:var(--faint)}
 
   .focuscard{border-color:var(--pc,var(--accent)); box-shadow:0 0 0 1px var(--pc,var(--accent)) inset}
-  .focuscard .t{font-family:var(--display); font-weight:600; font-size:1.2rem; letter-spacing:-.01em}
+  .focuscard .t{font-family:var(--display); font-weight:600; font-size:1.3rem; letter-spacing:-.01em; line-height:1.1}
+  .nextstep{font-size:1rem; font-weight:600; margin-top:2px}
+  .nextstep .lbl{font-size:.72rem; font-weight:600; letter-spacing:.08em; text-transform:uppercase; color:var(--faint); display:block; margin-bottom:1px}
+
+  /* session timer */
+  .startbtn{display:flex; align-items:center; justify-content:center; gap:9px; width:100%; margin-top:13px;
+    background:var(--accent); color:var(--accent-ink); border:0; border-radius:12px; padding:13px;
+    font-weight:750; font-size:.98rem; letter-spacing:.01em}
+  .startbtn .tri{font-size:.8rem}
+  .startbtn.running{background:var(--surface-2); color:var(--text); border:1px solid var(--accent)}
+  .startbtn .clock{font-family:"JetBrains Mono",ui-monospace,monospace; font-variant-numeric:tabular-nums}
+  @media (prefers-reduced-motion:no-preference){
+    .startbtn.running .dot{width:8px;height:8px;border-radius:50%;background:var(--accent);animation:breathe 2.4s ease-in-out infinite}
+  }
+  .startbtn.running .dot{width:8px;height:8px;border-radius:50%;background:var(--accent)}
+  @keyframes breathe{0%,100%{opacity:.35;transform:scale(.8)}50%{opacity:1;transform:scale(1.15)}}
+  .logtime{background:none;border:0;color:var(--faint);font-size:.78rem;font-weight:600;margin-top:8px;width:100%;text-align:center}
+
+  /* evening ribbon */
+  .ribbon{display:flex; gap:5px; margin:14px 0 2px}
+  .ribbon > div{flex:1; position:relative; border-radius:7px; background:var(--surface-2); overflow:hidden;
+    height:32px; display:flex; align-items:center; justify-content:center;
+    font-size:.68rem; font-weight:700; letter-spacing:.04em; text-transform:uppercase; color:var(--faint)}
+  .ribbon > div .fill{position:absolute; left:0; top:0; bottom:0; background:var(--accent); opacity:.85; transition:width .5s cubic-bezier(.2,.8,.2,1)}
+  .ribbon > div span{position:relative; z-index:1}
+  .ribbon > div.here{outline:1.5px solid var(--text); outline-offset:1px}
+  .ribbon > div.full span{color:var(--accent-ink)}
   .badge{font-size:.72rem; font-weight:650; padding:2px 8px; border-radius:999px; background:var(--surface-2); border:1px solid var(--line); white-space:nowrap}
   .badge.soon{color:var(--warn); border-color:var(--warn)}
   .badge.over{color:var(--bad); border-color:var(--bad)}
@@ -120,7 +146,7 @@
   nav svg{width:20px; height:20px}
 
   /* momentum */
-  .mo{display:flex; gap:10px; align-items:center; margin:12px 0 2px; flex-wrap:wrap}
+  .mo{display:flex; gap:8px; align-items:center; margin:14px 0 2px; flex-wrap:wrap; cursor:pointer}
   .mo .chip2{display:inline-flex; align-items:center; gap:5px; background:var(--surface-2); border:1px solid var(--line);
     border-radius:999px; padding:5px 11px; font-size:.82rem; font-weight:650}
   .mo .chip2.xp{color:var(--accent)} .mo .chip2.streak{color:var(--warn)}
@@ -264,7 +290,7 @@ const DEFAULTS={
   wakeOverride:'', sleepGoalH:8, workEnd:'17:00',
   week:{0:'project',1:'project',2:'rest',3:'project',4:'rest',5:'off',6:'project'},
   projects:[], routines:[], skills:[], events:[], tasks:[], checks:{}, counters:{},
-  sessions:[], xp:0, xpLog:[], focus:null, onboarded:false,
+  sessions:[], activeSession:null, xp:0, xpLog:[], focus:null, onboarded:false,
 };
 
 let S = load();
@@ -280,6 +306,7 @@ function migrate(s){
   s.counters = s.counters || {};
   s.craft = s.craft || 'other';
   s.sessions = s.sessions || [];
+  if(s.activeSession && (!s.activeSession.projectId || !s.activeSession.startedAt)) s.activeSession=null;
   if(s.water){ s.counters.water = Object.assign({}, s.counters.water, s.water); delete s.water; }
   for(const k in s.week) if(s.week[k]==='edmontask') s.week[k]='project';
   s.projects = (s.projects||[]).map((p,i)=>{ const q=Object.assign({
@@ -702,20 +729,55 @@ function viewToday(app){
   const part = now.getHours()<12?'Good morning':now.getHours()<17?'Good afternoon':'Good evening';
   hero.append(el('div',{class:'greet'}, `${part}, ${S.user}.`));
   hero.append(el('div',{class:'sub'}, `${WD[dow]}, ${now.toLocaleDateString(undefined,{month:'long',day:'numeric'})} — ${({project:'focus night',rest:'rest night',off:'night off'})[mode]}`));
-  const clk=el('div',{class:'clockline'});
-  if(!evening){ clk.append(pill(`Wake by <b>${fmtHM(wakeMin())}</b>`)); clk.append(pill(`Leave by <b>${fmtHM(leaveMin())}</b>`)); }
-  else { clk.append(pill(`Wind-down <b>${fmtHM(windDownMin())}</b>`, nowMin>=windDownMin()-1)); clk.append(pill(`Lights out <b>${fmtHM(asleepMin())}</b>`, nowMin>=asleepMin()-1)); }
-  hero.append(clk);
   app.append(hero);
 
-  // momentum bar
-  const pg=xpProg(S.xp), stk=bestStreak(), today=xpToday();
-  const mo=el('div',{class:'mo'});
-  mo.append(el('span',{class:'chip2 xp', onclick:()=>go('you')}, `⭐ Lv ${pg.level}`));
+  const due = S.routines.filter(r=>routineDue(r,iso,mode));
+  const bySlot = s => due.filter(r=>r.slot===s).sort((a,b)=>prW(b.priority)-prW(a.priority));
+  const evsAll=eventsOn(iso);
+  const outNow = evening && eveningCommitment(iso);
+  let fp=null;
+  if(mode==='project' && !outNow) fp=pickFocus(iso);
+
+  // ring math (evening = must/normal non-winddown routines + focus)
+  const ringItems=[ ...due.filter(r=>r.slot!=='winddown' && r.priority!=='low'), ...(fp?[{_focus:true}]:[]) ];
+  const ringDone = ringItems.filter(it=> it._focus ? isDone(iso,'focus') : routineComplete(it,iso)).length;
+  const eveP = ringItems.length ? Math.round(ringDone/ringItems.length*100) : 100;
+  const wdDue = bySlot('winddown'), wdDone = wdDue.filter(r=>routineComplete(r,iso)).length;
+  const wdP = wdDue.length ? Math.round(wdDone/wdDue.length*100) : (eveP===100?100:0);
+  const allClear = eveP===100 && wdP===100;
+
+  // momentum line
+  const pg=xpProg(S.xp), stk=bestStreak(), xpt=xpToday();
+  const mo=el('div',{class:'mo', onclick:()=>go('you')});
+  mo.append(el('span',{class:'chip2 xp'}, `⭐ Lv ${pg.level}`));
   if(stk>1) mo.append(el('span',{class:'chip2 streak'}, `\u{1f525} ${stk}`));
-  if(today>0) mo.append(el('span',{class:'chip2'}, `+${today} today`));
+  if(xpt>0) mo.append(el('span',{class:'chip2'}, `+${xpt} today`));
   mo.append(el('div',{class:'xpbar'},[ el('i',{style:`width:${pg.pct}%`}) ]));
   app.append(mo);
+
+  // evening ribbon
+  if(evening){
+    const norm=m=>((m%1440)+1440)%1440;
+    const wdM=norm(windDownMin()), slM=norm(asleepMin());
+    const rb=el('div',{class:'ribbon'});
+    const zones=[
+      {name:'Evening', p:eveP, here: nowMin<wdM},
+      {name:'Wind-down', p:wdP, here: nowMin>=wdM && nowMin<slM},
+      {name:fmtHM(asleepMin()), p: allClear?100:0, here: nowMin>=slM},
+    ];
+    zones.forEach(z=>{
+      const d=el('div',{class:(z.here?'here ':'')+(z.p>=100?'full':'')});
+      d.append(el('div',{class:'fill', style:`width:${z.p}%`}));
+      d.append(el('span',{}, z.name));
+      rb.append(d);
+    });
+    app.append(rb);
+    if(allClear && justTapId) app.append(el('div',{class:'muted tiny', style:'text-align:center;margin-top:4px'}, 'Day cleared — go rest.'));
+  } else {
+    app.append(el('div',{class:'mo', style:'margin-top:6px'},[
+      pill(`Wake by <b>${fmtHM(wakeMin())}</b>`), pill(`Leave by <b>${fmtHM(leaveMin())}</b>`)
+    ]));
+  }
 
   // focus mode banner
   const fpj=focusProject();
@@ -730,34 +792,14 @@ function viewToday(app){
     app.append(b);
   }
 
-  const evs=eventsOn(iso);
-  const out = evening && eveningCommitment(iso);
-  if(evs.length){
+  const out = outNow;
+  if(evsAll.length){
     const ec=el('div',{class:'card', style:'border-color:var(--accent)'});
     ec.append(el('div',{class:'faint tiny', style:'margin-bottom:6px'}, out?'You’re out tonight':'On your calendar today'));
-    evs.forEach(e=> ec.append(el('div',{style:'font-weight:600;margin:2px 0'}, (e.time?fmtHM(parseHM(e.time))+'  ':'')+e.title)));
+    evsAll.forEach(e=> ec.append(el('div',{style:'font-weight:600;margin:2px 0'}, (e.time?fmtHM(parseHM(e.time))+'  ':'')+e.title)));
     if(out) ec.append(el('div',{class:'muted tiny', style:'margin-top:6px'},'Focus block is off tonight — just hit the must-do routines when you’re back, and protect the bedtime.'));
     app.append(ec);
   }
-
-  const due = S.routines.filter(r=>routineDue(r,iso,mode));
-  const bySlot = s => due.filter(r=>r.slot===s).sort((a,b)=>prW(b.priority)-prW(a.priority));
-
-  let fp=null;
-  if(mode==='project' && !out) fp=pickFocus(iso);
-
-  // progress: must/normal non-winddown routines + focus
-  const ringItems=[
-    ...due.filter(r=>r.slot!=='winddown' && r.priority!=='low'),
-    ...(fp?[{_focus:true}]:[]),
-  ];
-  const ringDone = ringItems.filter(it=> it._focus ? isDone(iso,'focus') : routineComplete(it,iso)).length;
-  const pct = ringItems.length ? Math.round(ringDone/ringItems.length*100) : 0;
-  const ring=el('div',{class:'ring'+(pct===100&&justTapId?' cleared':'')}); ring.style.setProperty('--p',pct); ring.append(el('span',{},`${pct}%`));
-  app.append(el('div',{class:'prog'},[ ring, el('div',{},[
-    el('div',{},`${ringDone} of ${ringItems.length} done`),
-    el('div',{class:'faint tiny'}, pct===100?'Day cleared. Go rest.':'One at a time.'),
-  ])]));
 
   if(fp) app.append(autoFocusCard(fp, iso));
   else if(mode==='project' && !out) app.append(el('div',{class:'card'},[
@@ -853,70 +895,123 @@ function afterProgress(p, iso){
   if(hasParts(p) && c!==p && (c.subs||[]).every(x=>x.done) && !c.complete){
     c.complete=true;
     const dn=p.parts.filter(s=>s.complete).length;
-    if(dn<p.parts.length) award(250,'Part done: '+c.name, {cele:{kicker:'Part complete', big:'“'+c.name+'” done', sub:`${p.name} · ${dn} of ${p.parts.length} parts`}});
+    if(dn<p.parts.length) award(250,'Part done: '+c.name, {cele:{kicker:craft().part+' complete', big:'“'+c.name+'” '+craft().wrap, sub:`${p.name} · ${dn} of ${p.parts.length}`}});
   }
 }
-function logWork(p, amount, iso){
-  const c=curr(p), wasLive=projLive(p);
-  let k=amount; for(const s of c.subs){ if(k<=0)break; if(!s.done){ s.done=true; k--; } }
-  p.lastWorked=iso;
-  award(Math.round(minPerSessionOf(p)*(amount/perSessionOf(p))), p.name+' — session');
+function afterStep(p, s, iso){
+  const wasLive=projLive(p);
+  s.done=!s.done; p.lastWorked=iso;
+  award(s.done?50:-50, s.text);
   afterProgress(p, iso);
   if(wasLive && !projLive(p)){
     p.archived=true;
     if(S.focus && S.focus.id===p.id) S.focus=null;
-    award(500,'Project done: '+p.name, {cele:{kicker:'Project complete', big:p.name, sub:'Done. Off your plate for good.'}});
+    award(600,'Project done: '+p.name, {cele:{kicker:'Wrapped', big:p.name, sub:'Finished. Off your plate for good.'}});
   }
-  checkDayCleared(iso);
-  save(); render(); flushCele();
+  checkDayCleared(iso); save(); render(); flushCele();
 }
+
+/* ---- session timer ---- */
+let _tick=null;
+function activeSessionProject(){ return S.activeSession ? S.projects.find(p=>p.id===S.activeSession.projectId) : null; }
+function sessionMins(){ return S.activeSession ? Math.max(0,(Date.now()-S.activeSession.startedAt)/60000) : 0; }
+function fmtClock(mins){ let s=Math.floor(mins*60); const h=Math.floor(s/3600); s%=3600; const m=Math.floor(s/60); s%=60;
+  return (h?h+':':'')+String(m).padStart(h?2:1,'0')+':'+String(s).padStart(2,'0'); }
+function startSession(p){
+  if(S.activeSession && S.activeSession.projectId!==p.id) stopSession(true);
+  S.activeSession={projectId:p.id, startedAt:Date.now()};
+  save(); render(); ensureTick();
+}
+function stopSession(silent){
+  if(!S.activeSession) return;
+  const p=activeSessionProject();
+  const mins=Math.max(1, Math.round(sessionMins()));
+  const d=todayISO(new Date(S.activeSession.startedAt));
+  S.activeSession=null; stopTick();
+  if(p){
+    S.sessions.push({date:d, projectId:p.id, min:mins});
+    if(S.sessions.length>400) S.sessions=S.sessions.slice(-400);
+    p.lastWorked=d;
+    award(mins, `${p.name} — ${fmtDur(mins)} on ${craft().body}`);
+    if(mins>=3) dayChecks(d).focus=true;
+  }
+  if(!silent){ checkDayCleared(todayISO()); save(); render(); flushCele(); }
+  else save();
+}
+function logSessionManual(p){
+  let m=25;
+  sheet('Log a session — '+p.name, [ field('How long did you work? (minutes)', numInput(25,v=>m=v)) ], ()=>{
+    const d=todayISO();
+    S.sessions.push({date:d, projectId:p.id, min:Math.max(1,Math.round(m))});
+    p.lastWorked=d; award(Math.max(1,Math.round(m)), `${p.name} — ${fmtDur(m)}`);
+    if(m>=3) dayChecks(d).focus=true;
+    checkDayCleared(d); save(); render(); flushCele(); return true;
+  });
+}
+function ensureTick(){ if(_tick || !S.activeSession) return; _tick=setInterval(()=>{ if(view==='today'){ const c=document.querySelector('.startbtn .clock'); if(c) c.textContent=fmtClock(sessionMins()); } }, 1000); }
+function stopTick(){ if(_tick){ clearInterval(_tick); _tick=null; } }
+function minsToday(pid){ const d=todayISO(); return (S.sessions||[]).filter(x=>x.date===d && x.projectId===pid).reduce((t,x)=>t+x.min,0); }
+
 function autoFocusCard(fp, iso){
   const p=fp.project, st=fp.part, cw=curr(p);
   const c=el('div',{class:'card focuscard'});
-  const done=isDone(iso,'focus');
-  const head=el('div',{class:'row tap'+(done?' done':''), style:'border:0;background:none;padding:4px 0;margin:0'});
-  head.append(el('div',{class:'box', html:CHECK}));
-  head.append(el('div',{class:'tx'},[
-    el('div',{class:'t'}, p.name),
-    el('div',{class:'d'}, `${st&&st.name?st.name+' · ':''}${fp.amount} ${unit(p,fp.amount)} tonight · ~${fmtDur(minPerSessionOf(p) * (fp.amount/perSessionOf(p)))}`),
-  ]));
-  head.addEventListener('click',()=>toggle(iso,'focus'));
-  c.append(head);
+  c.style.setProperty('--pc', projColorVar(p));
+  const running = S.activeSession && S.activeSession.projectId===p.id;
 
-  const meta=el('div',{class:'inline', style:'gap:8px;margin:8px 0 0;flex-wrap:wrap'});
+  c.append(el('div',{class:'t', style:`color:${projColorVar(p)}`}, p.name));
+  c.append(el('div',{class:'muted', style:'font-size:.86rem;margin-top:1px'},
+    `${st&&st.name?st.name+' · ':''}${pDone(p)} of ${pTotal(p)} done${hasParts(p)?'':' overall'}`));
+
+  const meta=el('div',{class:'inline', style:'gap:7px;margin:9px 0 0;flex-wrap:wrap'});
   const dl=deadlineTag(deadlineOf(p)); if(dl) meta.append(dl);
   if(S.focus && S.focus.id===p.id) meta.append(el('span',{class:'badge ok'},'\u{1f3af} focus'));
   if(p.priority!=='normal') meta.append(el('span',{class:'badge'}, p.priority==='must'?'must-do':'low priority'));
+  const mt=minsToday(p.id); if(mt) meta.append(el('span',{class:'badge'}, `${fmtDur(mt)} today`));
   if(meta.children.length) c.append(meta);
-  c.append(el('div',{class:'muted tiny', style:'margin-top:6px'}, fp.status.txt));
-  if(fp.feas && !fp.feas.ok) c.append(el('div',{class:'tiny', style:'margin-top:4px;color:var(--bad)'},
-    `⚠ ${fp.feas.finish?`${fp.feas.parted&&fp.feas.partName?`“${fp.feas.partName}” `:''}won’t make its deadline — projected ${dstr(fp.feas.finish)}`:'won’t finish at this pace'}. Do more per session, add focus nights, or move the date.`));
+
+  if(fp.feas && !fp.feas.ok) c.append(el('div',{class:'tiny', style:'margin-top:7px;color:var(--warn)'},
+    `${fp.feas.finish?`${fp.feas.parted&&fp.feas.partName?`“${fp.feas.partName}” `:''}running past its deadline — projected ${dstr(fp.feas.finish)}. Add a night, do more per session, or move the date.`:'won’t finish at this pace yet.'}`));
+  else c.append(el('div',{class:'muted tiny', style:'margin-top:7px'}, fp.status.txt));
 
   if(hasParts(p)) c.append(partStrip(p));
-  c.append(el('div',{class:'bar'},[ el('i',{style:`width:${pTotal(p)?Math.round(pDone(p)/pTotal(p)*100):0}%`}) ]));
-  c.append(el('div',{class:'faint tiny', style:'margin-top:4px'}, `${pDone(p)} of ${pTotal(p)} done${st&&st.name?` in “${st.name}”`:''}`));
 
+  // the next step
+  const next = cw.subs.find(s=>!s.done);
+  if(next){
+    c.append(el('div',{class:'nextstep', style:'margin-top:11px'},[
+      el('span',{class:'lbl'}, 'Next step'),
+      el('span',{}, next.text),
+    ]));
+  } else {
+    c.append(el('div',{class:'nextstep', style:'margin-top:11px;color:var(--good)'}, hasParts(p)?`“${cw.name}” is done — tap to close it out`:'All steps done'));
+  }
+
+  // Start / running
+  const sb=el('button',{class:'startbtn'+(running?' running':'')});
+  if(running){
+    sb.append(el('span',{class:'dot'}));
+    sb.append(el('span',{}, 'Working'));
+    sb.append(el('span',{class:'clock'}, fmtClock(sessionMins())));
+    sb.append(el('span',{style:'font-weight:800;margin-left:auto'}, 'Stop'));
+    sb.addEventListener('click',()=>stopSession(false));
+  } else {
+    sb.append(el('span',{class:'tri'},'▶'));
+    sb.append(el('span',{}, S.activeSession ? 'Switch here & start' : 'Start'));
+    sb.addEventListener('click',()=>startSession(p));
+  }
+  c.append(sb);
+  c.append(el('button',{class:'logtime', onclick:()=>logSessionManual(p)}, 'forgot to hit start? log time manually'));
+
+  // full checklist
   const list=el('div',{class:'sub-list'});
   cw.subs.slice().sort((a,b)=>a.done-b.done).forEach(s=>{
     const sr=el('div',{class:'sub'+(s.done?' done':'')});
     sr.append(el('div',{class:'box', html:CHECK}));
     sr.append(el('div',{class:'s'}, s.text));
-    sr.addEventListener('click',()=>{
-      const wasLive=projLive(p);
-      s.done=!s.done; p.lastWorked=iso;
-      award(s.done?50:-50, s.text);
-      afterProgress(p, iso);
-      if(wasLive&&!projLive(p)){ p.archived=true; if(S.focus&&S.focus.id===p.id)S.focus=null;
-        award(500,'Project done: '+p.name,{cele:{kicker:'Project complete', big:p.name, sub:'Done. Off your plate for good.'}}); }
-      checkDayCleared(iso); save(); render(); flushCele();
-    });
+    sr.addEventListener('click',()=>afterStep(p, s, iso));
     list.append(sr);
   });
   c.append(list);
-
-  c.append(el('button',{class:'btn primary sm block', style:'margin-top:12px',
-    onclick:()=>{ dayChecks(iso).focus=true; justTapId='focus'; logWork(p, fp.amount, iso); }},
-    `Log tonight’s ${fp.amount} ${unit(p,fp.amount)} done`));
   return c;
 }
 function partStrip(p){
@@ -1661,8 +1756,8 @@ function fmt24(m){ m=((m%1440)+1440)%1440; return String(Math.floor(m/60)).padSt
 /* ---------- boot ---------- */
 let lastDay=todayISO();
 setInterval(()=>{ const t=todayISO(); if(t!==lastDay){ lastDay=t; render(); } }, 60000);
-document.addEventListener('visibilitychange',()=>{ if(!document.hidden) render(); });
-buildNav(); render(); onboard();
+document.addEventListener('visibilitychange',()=>{ if(!document.hidden){ render(); ensureTick(); } });
+buildNav(); render(); onboard(); ensureTick();
 if('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(()=>{});
 </script>
 </body>
