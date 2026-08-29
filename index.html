@@ -307,7 +307,12 @@
   .tsub input[type=text]{width:100%; padding:7px 9px; font-size:.88rem}
   .ted-meta input[type=date],.ted-subs input[type=date],.ted-meta input[type=time],.ted-subs input[type=time]{padding:5px 7px; font-size:.78rem; width:auto}
   .plist{display:flex; flex-direction:column}
-  .pcard>.inline>.drag{margin-top:2px}
+  .reorder{display:flex; flex-direction:column; align-items:center; flex:none}
+  .reorder .drag{padding:1px 3px; font-size:.92rem; color:var(--muted)}
+  .mv{background:none; border:0; color:var(--muted); font-size:.62rem; line-height:.9; padding:4px 7px; cursor:pointer}
+  .mv:active{color:var(--accent)}
+  .tsub .reorder{transform:scale(.9); margin-left:-2px}
+  .pcard .reorder{margin-top:1px}
   .pcard-open{background:none; border:0; padding:0; text-align:left; font-family:var(--display); font-weight:600; font-size:1.15rem; letter-spacing:-.01em; min-width:0; overflow-wrap:anywhere}
   .ted.eddone .ted-t,.tsub.eddone input[type=text]{text-decoration:line-through; opacity:.55}
 
@@ -358,7 +363,7 @@ const KEY='pa.v1';
 // Ships blank. Everything is created on-device via the setup flow and stored in
 // localStorage — nothing personal lives in this file or the repo.
 const DEFAULTS={
-  user:'there', assistant:'Jarvis', craft:'other', sound:false, remind:{winddown:false},
+  user:'there', assistant:'Jarvis', craft:'other', sound:false, remind:{winddown:false}, planNudge:'',
   workStart:'08:00', driveMin:15, morningMin:30,
   wakeOverride:'', sleepGoalH:8, workEnd:'17:00',
   week:{0:'project',1:'project',2:'rest',3:'project',4:'rest',5:'off',6:'project'},
@@ -380,6 +385,7 @@ function migrate(s){
   s.craft = s.craft || 'other';
   s.sound = !!s.sound;
   s.remind = Object.assign({winddown:false}, s.remind||{});
+  s.planNudge = s.planNudge || '';
   s.sessions = s.sessions || [];
   s.starts = s.starts || [];
   if(s.activeSession && (!s.activeSession.projectId || !s.activeSession.startedAt)) s.activeSession=null;
@@ -724,18 +730,26 @@ function amountFor(s){
   if(s.need!=null) amt=Math.max(s.per, Math.round(s.need));
   return Math.max(1, Math.min(amt, s.per*2));   // never suggest more than 2 sessions' worth in one night
 }
+// earliest live deadline that bears on a task: its own, its incomplete subtasks', or the project's
+function taskDeadline(t, p){
+  const subDl=(t.subs||[]).filter(s=>!s.done && s.deadline).map(s=>s.deadline).sort()[0];
+  return [t.deadline, subDl, p&&p.deadline].filter(Boolean).sort()[0] || '';
+}
 // remaining work as an ordered list of tasks ({name, remaining, deadline})
 function workParts(p){
   return (p.parts||[]).filter(t=>!taskDone(t)).map(t=>({
-    name:t.name, remaining:taskUnitsLeft(t), deadline:t.deadline||p.deadline||'' }));
+    name:t.name, remaining:taskUnitsLeft(t), deadline:taskDeadline(t, p) }));
 }
+let skipTonight = new Set();
 function pickFocus(iso){
-  const cands=liveProjects();
+  const fpj=focusProject();
+  let cands=liveProjects();
+  if(!fpj) cands=cands.filter(p=>!skipTonight.has(p.id));
+  if(!cands.length && skipTonight.size){ skipTonight.clear(); cands=liveProjects(); }
   if(!cands.length) return null;
   const fnpw=focusNightsPerWeek();
-  const fpj=focusProject();
   const base = fpj ? [fpj] : cands;
-  const pool=base.map(p=>({p, deadline:deadlineOf(p), remaining:projRemaining(p), per:perSessionOf(p), priority:p.priority, lastWorked:p.lastWorked||''}));
+  const pool=base.map(p=>({p, deadline:(hasParts(p)?taskDeadline(curr(p),p):deadlineOf(p)), remaining:projRemaining(p), per:perSessionOf(p), priority:p.priority, lastWorked:p.lastWorked||''}));
   pool.sort((a,b)=>cmp(a,b,iso,fnpw));
   const win=pool[0], s=score(win,iso,fnpw);
   const amount=Math.min(win.remaining, amountFor(s));
@@ -966,6 +980,19 @@ function viewToday(app){
   else if(mode==='rest') app.append(section('Tonight',[noteRow('Rest night — a show or nothing. On the plan on purpose.')]));
   else if(mode==='off') app.append(section('Tonight',[noteRow('Night off. Go do something fun and don’t log it.')]));
 
+  // occasional check-in on parked "Planning" projects
+  const planning = S.projects.filter(x=>!x.archived && x.priority==='planning');
+  if(planning.length && daysBetween(S.planNudge||'2000-01-01', iso) >= 7){
+    const pn=el('div',{class:'card'});
+    pn.append(el('div',{style:'font-weight:650'}, `${planning.length} ${planning.length===1?'idea':'ideas'} in Planning`));
+    pn.append(el('div',{class:'muted tiny', style:'margin:4px 0 10px'}, planning.map(x=>x.name).join(' · ')+' — ready to start any?'));
+    pn.append(el('div',{class:'inline', style:'gap:8px'},[
+      el('button',{class:'btn primary sm', onclick:()=>go('projects')},'Review'),
+      el('button',{class:'btn ghost sm', onclick:()=>{ S.planNudge=iso; save(); render(); }},'Not now'),
+    ]));
+    app.append(pn);
+  }
+
   // tasks
   const taskItems = S.tasks.filter(t=>!t.done && (t.due && t.due<=iso || (!t.due && t.priority==='must')));
   if(taskItems.length) app.append(section('Tasks', taskItems
@@ -1155,6 +1182,16 @@ function autoFocusCard(fp, iso){
     `${fp.feas.finish?`${fp.feas.partName?`“${fp.feas.partName}” `:''}running past its deadline — projected ${dstr(fp.feas.finish)}. Add a focus night or move the date.`:'won’t finish at this pace yet.'}`));
   else c.append(el('div',{class:'muted tiny', style:'margin-top:7px'}, fp.status.txt));
 
+  // an imminent subtask deadline inside the current task
+  if(hasSubs){
+    const us = cw.subs.filter(s=>!s.done && s.deadline).sort((a,b)=>a.deadline.localeCompare(b.deadline))[0];
+    if(us){
+      const n=daysBetween(iso, us.deadline);
+      if(n<=3) c.append(el('div',{class:'tiny', style:'margin-top:6px;color:var(--warn)'},
+        `⏰ “${us.text}” ${n<0?`${-n}d overdue`:n===0?'due today':`due ${dstr(us.deadline)}`}`));
+    }
+  }
+
   if(hasParts(p)) c.append(partStrip(p));
 
   // the next step
@@ -1190,7 +1227,11 @@ function autoFocusCard(fp, iso){
     sb.addEventListener('click',()=>startSession(p));
   }
   c.append(sb);
-  c.append(el('button',{class:'logtime', onclick:()=>logSessionManual(p)}, 'forgot to hit start? log time manually'));
+  const lt=el('div',{class:'inline', style:'gap:12px;justify-content:center;margin-top:8px;flex-wrap:wrap'});
+  lt.append(el('button',{class:'logtime', style:'width:auto;margin:0', onclick:()=>logSessionManual(p)}, 'log time manually'));
+  if(!(S.focus && S.focus.id===p.id) && liveProjects().filter(x=>!skipTonight.has(x.id)).length>1)
+    lt.append(el('button',{class:'logtime', style:'width:auto;margin:0', onclick:()=>{ skipTonight.add(p.id); render(); }}, 'not tonight — pick another →'));
+  c.append(lt);
 
   // full checklist
   const list=el('div',{class:'sub-list'});
@@ -1306,7 +1347,7 @@ function projectCard(p, iso, isNext, canDrag){
   c.style.setProperty('--pc', projColorVar(p));
   const feas=feasibility(p);
   const head=el('div',{class:'inline', style:'gap:8px;align-items:flex-start'});
-  if(canDrag) head.append(el('span',{class:'drag', html:'⠿'}));
+  if(canDrag) head.append(grip());
   head.append(el('button',{class:'pcard-open', style:`flex:1;color:${projColorVar(p)}`, onclick:()=>openProject(p.id)},
     (isFocus?'\u{1f3af} ':'')+p.name));
   c.append(head);
@@ -1367,10 +1408,21 @@ function chooseFocus(p){
     return true;
   });
 }
-// pointer-based drag reorder. Binds the first .drag handle inside each direct child of `container`.
+function grip(){
+  return el('span',{class:'reorder'},[
+    el('button',{class:'mv mv-up', 'aria-label':'Move up', html:'▲'}),
+    el('span',{class:'drag', html:'⠿', 'aria-hidden':'true'}),
+    el('button',{class:'mv mv-dn', 'aria-label':'Move down', html:'▼'}),
+  ]);
+}
+// pointer-based drag reorder + ▲/▼ fallback. Per direct child of `container`:
+// binds the first .drag handle for dragging and .mv-up / .mv-dn buttons for discrete moves.
 function dragList(container, onReorder){
   const rows = () => [...container.children];
   rows().forEach(row=>{
+    const up=row.querySelector('.mv-up'), dn=row.querySelector('.mv-dn');
+    if(up) up.addEventListener('click',()=>{ const i=rows().indexOf(row); if(i>0) onReorder(i, i-1); });
+    if(dn) dn.addEventListener('click',()=>{ const i=rows().indexOf(row); if(i>=0 && i<rows().length-1) onReorder(i, i+1); });
     const h = row.querySelector('.drag');
     if(!h) return;
     h.addEventListener('pointerdown', e=>{
@@ -1456,7 +1508,7 @@ function taskBoard(mount, p, persist){
   function row(t, ti){
     const wrap=el('div',{class:'ted'+(taskDone(t)?' eddone':'')});
     const head=el('div',{class:'ted-h'});
-    head.append(el('span',{class:'drag', html:'⠿'}));
+    head.append(grip());
     head.append(el('input',{class:'ted-t', value:t.name||'', placeholder:'Task '+(ti+1), oninput:e=>{ t.name=e.target.value; persist(); }}));
     head.append(el('button',{class:'del', style:'flex:none', onclick:()=>{ tasks.splice(ti,1); persist(); draw(); }},'✕'));
     wrap.append(head);
@@ -1470,7 +1522,7 @@ function taskBoard(mount, p, persist){
       const sub=el('div',{class:'ted-subs'});
       (t.subs||[]).forEach((s,si)=>{
         const r=el('div',{class:'tsub'+(s.done?' eddone':'')});
-        r.append(el('span',{class:'drag', html:'⠿'}));
+        r.append(grip());
         const col=el('div',{style:'flex:1;min-width:0'});
         col.append(el('input',{type:'text', value:s.text||'', placeholder:'Subtask '+(si+1), oninput:e=>{ s.text=e.target.value; persist(); }}));
         col.append(el('div',{class:'inline', style:'gap:4px;margin-top:4px;flex-wrap:wrap'}, [ dateChip(s) ]));
@@ -2243,7 +2295,7 @@ function onboard(){
   const dlg=$('#sheet');
   const st={ step:0, name:S.user==='there'?'':S.user, asst:S.assistant, craft:S.craft||'other', wake:'07:15', home:'17:15',
              routines:new Set(), rc:'', skills:new Set(), sc:'',
-             proj:{name:'', type:'', deadline:'', mode:'flat', flatText:'', base:'', n:0, tmpl:''} };
+             addProject:true };
   function chipRow(list, set){
     const w=el('div',{class:'chips'});
     list.forEach(item=>{
@@ -2257,13 +2309,6 @@ function onboard(){
     if(st.step===0){ st.name=$('#w_name').value; st.asst=$('#w_asst').value; if($('#w_craft')) st.craft=$('#w_craft').value; st.wake=$('#w_wake').value; st.home=$('#w_home').value; }
     if(st.step===1){ st.rc=$('#w_rc').value; }
     if(st.step===2){ st.sc=$('#w_sc').value; }
-    if(st.step===3){
-      st.proj.name=$('#w_pn').value.trim();
-      if($('#w_ptype')) st.proj.type=$('#w_ptype').value.trim();
-      if($('#w_pd')) st.proj.deadline=$('#w_pd').value;
-      if($('#w_pf')) st.proj.flatText=$('#w_pf').value;
-      if($('#w_pt')) st.proj.tmpl=$('#w_pt').value;
-    }
   }
   function draw(){
     dlg.innerHTML=''; dlg.style.display='';
@@ -2288,33 +2333,24 @@ function onboard(){
       box.append(chipRow(SPRE, st.skills));
       box.append(field('Add your own', `<input id="w_sc" value="${esc(st.sc)}" placeholder="Screenwriting">`));
     } else {
-      box.append(el('h2',{}, 'A project with a finish line?'));
-      box.append(el('p',{class:'muted', style:'margin:4px 0 10px'}, 'Something you’re working toward. Skip if none — add projects anytime.'));
-      box.append(field('Title', `<input id="w_pn" value="${esc(st.proj.name)}" placeholder="e.g. Podcast — season 2">`));
-      box.append(typeField('w_ptype', st.proj.type||''));
-      box.append(labeled('Structure', segmented([['flat','A task list'],['parts','Repeating parts']], st.proj.mode, v=>{ capture(); st.proj.mode=v; draw(); })));
-      if(st.proj.mode==='flat'){
-        box.append(field('Deadline (optional)', `<input id="w_pd" type="date" value="${st.proj.deadline||''}">`));
-        box.append(field('Tasks — one per line', `<textarea id="w_pf" style="min-height:110px" placeholder="Draft outline\nWrite it\nEdit\nSend">${esc(st.proj.flatText)}</textarea>`));
-      } else {
-        const g=el('div',{class:'stagerow'});
-        g.append(el('input',{value:st.proj.base||'Part', style:'flex:1', placeholder:'Part name', oninput:e=>st.proj.base=e.target.value}));
-        g.append(el('input',{type:'number', min:'1', value:st.proj.n||'', style:'max-width:60px;text-align:center', placeholder:'#', oninput:e=>st.proj.n=Math.max(0,+e.target.value||0)}));
-        box.append(labeled('e.g. “Episode” × 9 — each becomes a task', g));
-        box.append(field('Subtasks for each part — one per line', `<textarea id="w_pt" style="min-height:110px" placeholder="Import footage\nSync cameras / audio\nEdit\nExport">${esc(st.proj.tmpl)}</textarea>`));
-        box.append(field('Overall deadline (optional)', `<input id="w_pd" type="date" value="${st.proj.deadline||''}">`));
-      }
+      box.append(el('h2',{}, 'A project to aim at'));
+      box.append(el('p',{class:'muted', style:'margin:4px 0 10px'}, 'Jarvis works best pointed at something with a finish line — a script, a season, a record. Set one up now, or add it later from the Studio.'));
     }
     const acts=el('div',{class:'row-actions', style:'margin-top:16px'});
     if(st.step>0) acts.append(el('button',{class:'btn ghost', onclick:()=>{ capture(); st.step--; draw(); }},'Back'));
-    if(st.step>=1) acts.append(el('button',{class:'btn ghost', onclick:()=>{ capture(); if(st.step===3){ st.proj.name=''; finish(); } else { st.step++; draw(); } }},'Skip'));
-    acts.append(el('button',{class:'btn primary', style:'margin-left:auto', onclick:()=>{ capture(); if(st.step<3){ st.step++; draw(); } else finish(); }}, st.step===3?'Finish':'Next'));
+    if(st.step<3){
+      if(st.step>=1) acts.append(el('button',{class:'btn ghost', onclick:()=>{ capture(); st.step++; draw(); }},'Skip'));
+      acts.append(el('button',{class:'btn primary', style:'margin-left:auto', onclick:()=>{ capture(); st.step++; draw(); }},'Next'));
+    } else {
+      acts.append(el('button',{class:'btn ghost', onclick:()=>finish(false)},'Not now'));
+      acts.append(el('button',{class:'btn primary', style:'margin-left:auto', onclick:()=>finish(true)},'Set one up'));
+    }
     box.append(acts);
     dlg.append(box);
     if(typeof dlg.showModal==='function'){ if(!dlg.open) dlg.showModal(); }
     else { dlg.setAttribute('open',''); dlg.style.cssText='display:block;position:fixed;inset:auto 0 0 0;z-index:100'; }
   }
-  function finish(){
+  function finish(addProject){
     S.user=(st.name||'').trim()||'there';
     S.assistant=(st.asst||'').trim()||'Jarvis';
     S.craft=st.craft||'other';
@@ -2330,25 +2366,8 @@ function onboard(){
     slist.forEach(name=> S.skills.push({id:uid(), name, createdAt:todayISO(), sessions:[]}));
     if(slist.length && !S.routines.some(r=>r.kind==='skill'))
       S.routines.push({id:uid(), name:'Practice a skill', hint:'10 minutes — pick one', cadence:{type:'daily'}, slot:'winddown', priority:'low', skipRest:false, lock:'', kind:'skill', goal:1, oz:0});
-    if(st.proj && st.proj.name){
-      const mkSub=t=>({id:uid(), text:t.replace(/^x\s+/i,''), done:/^x\s+/i.test(t), deadline:'', deadlineTime:'', completedAt:''});
-      const lines=s=>(s||'').split('\n').map(l=>l.trim()).filter(Boolean);
-      const base={id:uid(), name:st.proj.name, type:st.proj.type||'', deadline:st.proj.deadline||'', deadlineTime:'',
-        minPerSession:60, priority:'medium', color:nextColor(), notes:'', subs:[], parts:[], archived:false,
-        order:S.projects.length, lastWorked:'', createdAt:todayISO(), completedAt:''};
-      if(st.proj.mode==='parts' && st.proj.n>0){
-        const tpl=lines(st.proj.tmpl);
-        const pb=st.proj.base || 'Part';
-        for(let i=1;i<=st.proj.n;i++) base.parts.push({id:uid(), name:`${pb} ${i}`, deadline:'', deadlineTime:'', complete:false, completedAt:'',
-          subs: tpl.map(mkSub)});
-      } else {
-        base.parts = lines(st.proj.flatText).map(l=>({id:uid(), name:l.replace(/^x\s+/i,''), deadline:'', deadlineTime:'',
-          complete:/^x\s+/i.test(l), completedAt:'', subs:[]}));
-        if(!base.parts.length) base.parts=[{id:uid(), name:'Get started', deadline:'', deadlineTime:'', complete:false, completedAt:'', subs:[]}];
-      }
-      S.projects.push(base);
-    }
     S.onboarded=true; save(); closeSheet(); render();
+    if(addProject) newProject();
   }
   draw();
 }
@@ -2407,7 +2426,7 @@ function downloadWindDownICS(){
 
 /* ---------- boot ---------- */
 let lastDay=todayISO();
-setInterval(()=>{ const t=todayISO(); if(t!==lastDay){ lastDay=t; render(); armWindDownReminder(); } }, 60000);
+setInterval(()=>{ const t=todayISO(); if(t!==lastDay){ lastDay=t; skipTonight.clear(); render(); armWindDownReminder(); } }, 60000);
 document.addEventListener('visibilitychange',()=>{ if(!document.hidden){ render(); ensureTick(); armWindDownReminder(); } });
 buildNav(); render(); onboard(); ensureTick(); armWindDownReminder();
 if('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(()=>{});
