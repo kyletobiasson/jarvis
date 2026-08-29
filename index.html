@@ -162,15 +162,26 @@
   .focusbanner .ttl{font-weight:750; font-size:1.05rem; display:flex; align-items:center; gap:7px}
   .focusbanner .eta{font-size:.82rem; color:var(--muted); margin-top:3px}
 
-  .celebrate{position:fixed; inset:0; z-index:200; display:grid; place-items:center; background:rgba(6,8,12,.72);
-    backdrop-filter:blur(3px); text-align:center; padding:24px; animation:fade .25s ease}
+  .celebrate{position:fixed; inset:0; z-index:200; display:grid; place-items:center; text-align:center; padding:28px;
+    background:radial-gradient(circle at 50% 42%, rgba(232,163,61,.16), rgba(8,6,4,.86) 62%);
+    backdrop-filter:blur(2px); animation:fade .3s ease}
   @keyframes fade{from{opacity:0}to{opacity:1}}
-  .celebrate .big{font-family:var(--display); font-size:2.6rem; font-weight:600; letter-spacing:-.01em; line-height:1.08; max-width:14ch}
-  .celebrate .sub2{color:var(--muted); margin-top:10px; font-size:1rem}
-  .celebrate .kicker{color:var(--accent); font-weight:700; letter-spacing:.16em; font-size:.8rem; text-transform:uppercase}
-  .conf{position:fixed; inset:0; z-index:199; overflow:hidden; pointer-events:none}
-  .conf i{position:absolute; top:-12px; width:9px; height:14px; border-radius:2px; animation:drop linear forwards}
-  @keyframes drop{to{transform:translateY(110vh) rotate(720deg)}}
+  .celebrate .big{font-family:var(--display); font-size:2.7rem; font-weight:600; letter-spacing:-.015em; line-height:1.06; max-width:13ch;
+    animation:rise .6s cubic-bezier(.2,.8,.2,1) both}
+  @keyframes rise{from{opacity:0;transform:translateY(14px)}to{opacity:1;transform:none}}
+  .celebrate .sub2{color:var(--muted); margin-top:12px; font-size:1.02rem; animation:rise .6s .08s cubic-bezier(.2,.8,.2,1) both}
+  .celebrate .kicker{color:var(--accent); font-weight:700; letter-spacing:.18em; font-size:.78rem; text-transform:uppercase; margin-bottom:2px; animation:rise .6s cubic-bezier(.2,.8,.2,1) both}
+  .bloom{position:fixed; left:50%; top:42%; width:46vmin; height:46vmin; margin:-23vmin 0 0 -23vmin; border-radius:50%;
+    background:radial-gradient(circle, var(--accent) 0%, transparent 68%); z-index:199; pointer-events:none;
+    animation:bloom 1.5s cubic-bezier(.2,.7,.3,1) forwards}
+  @keyframes bloom{0%{transform:scale(.25);opacity:0}35%{opacity:.85}100%{transform:scale(2.6);opacity:0}}
+  .bokeh{position:fixed; inset:0; z-index:198; overflow:hidden; pointer-events:none}
+  .bokeh i{position:absolute; bottom:-8vmin; border-radius:50%; background:var(--accent); filter:blur(1px); animation:float linear forwards}
+  @keyframes float{to{transform:translateY(-118vh);opacity:0}}
+  @media (prefers-reduced-motion:reduce){
+    *,*::before,*::after{animation-duration:.001ms !important; animation-iteration-count:1 !important; transition-duration:.001ms !important}
+    .bloom,.bokeh{display:none}
+  }
 
   .lvlcard{background:var(--surface); border:1px solid var(--line); border-radius:var(--radius); padding:16px; margin:12px 0}
   .lvlcard .lv{font-family:var(--display); font-size:1.8rem; font-weight:600; letter-spacing:-.01em}
@@ -219,8 +230,8 @@
   .empty{text-align:center; color:var(--muted); padding:26px 10px}
   .tiny{font-size:.75rem}
   .divider{height:1px; background:var(--line); margin:16px 0}
-  .bar{height:6px; border-radius:999px; background:var(--surface-2); overflow:hidden; margin-top:8px}
-  .bar>i{display:block; height:100%; background:var(--accent)}
+  .bar{height:7px; border-radius:999px; background:var(--surface-2); overflow:hidden; margin-top:8px}
+  .bar>i{display:block; height:100%; background:var(--accent); transition:width .65s cubic-bezier(.2,.9,.25,1)}
   .hl{background:var(--surface-2)}
   .weekstrip{display:flex; gap:5px; margin-top:14px}
   .wk{flex:1; min-width:0; display:flex; flex-direction:column; align-items:center; gap:5px}
@@ -263,11 +274,11 @@
   .pcard::before{content:""; position:absolute; left:0; top:0; bottom:0; width:5px; background:var(--pc,var(--accent))}
   .pcard h3{font-family:var(--display); font-weight:600; font-size:1.15rem; letter-spacing:-.01em}
   .pcard.focusnow{box-shadow:0 0 0 1px var(--pc,var(--accent)) inset; border-color:var(--pc,var(--accent))}
-  .pboard{display:flex; gap:3px; margin:10px 0 4px}
-  .pboard > span{flex:1; height:14px; border-radius:3px; background:var(--surface-2); position:relative; overflow:hidden}
-  .pboard > span .f{position:absolute; left:0; top:0; bottom:0; background:var(--pc,var(--accent))}
-  .pboard > span.done{background:var(--pc,var(--accent))}
-  .pboard > span.active{outline:1.5px solid var(--pc,var(--accent)); outline-offset:1px}
+  .pboard{display:flex; gap:3px; margin:11px 0 5px}
+  .pboard > span{flex:1; height:15px; border-radius:3px; background:var(--surface-2); border:1px solid var(--line); position:relative; overflow:hidden}
+  .pboard > span .f{position:absolute; left:0; top:0; bottom:0; background:var(--pc,var(--accent)); opacity:.55}
+  .pboard > span.done{background:var(--pc,var(--accent)); border-color:var(--pc,var(--accent))}
+  .pboard > span.active{border-color:var(--pc,var(--accent)); box-shadow:0 0 0 1px var(--pc,var(--accent))}
 
   /* practice chain grid */
   .chain{display:grid; grid-template-columns:repeat(var(--cols,14),1fr); gap:4px; margin:10px 0 4px}
@@ -398,26 +409,28 @@ function levelBlurb(n){
 }
 function flushCele(){ if(_pendingCele){ const c=_pendingCele; _pendingCele=null; celebrate(c); } }
 function celebrate(o){
-  confetti();
+  document.querySelectorAll('.celebrate,.bloom,.bokeh').forEach(x=>x.remove());
+  lightBloom();
   const ov=el('div',{class:'celebrate', onclick:()=>ov.remove()}, [ el('div',{},[
     o.kicker?el('div',{class:'kicker'}, o.kicker):null,
     el('div',{class:'big'}, o.big),
     o.sub?el('div',{class:'sub2'}, o.sub):null,
-    el('div',{class:'sub2', style:'margin-top:18px;opacity:.45;font-size:.78rem'}, 'tap to continue'),
+    el('div',{class:'sub2', style:'margin-top:20px;opacity:.4;font-size:.76rem'}, 'tap to continue'),
   ]) ]);
   document.body.append(ov);
-  setTimeout(()=>{ if(ov.isConnected) ov.remove(); }, 6500);
+  setTimeout(()=>{ if(ov.isConnected) ov.remove(); }, 7000);
 }
-function confetti(){
-  const c=el('div',{class:'conf'}), cols=['#7aa2ff','#43c59e','#e0b453','#e0685f','#c58aff'];
-  for(let i=0;i<72;i++){ const p=el('i');
-    p.style.left=Math.random()*100+'vw'; p.style.background=cols[i%cols.length];
-    p.style.animationDuration=(1.5+Math.random()*1.7)+'s'; p.style.animationDelay=(Math.random()*.35)+'s';
-    p.style.transform=`rotate(${Math.random()*360}deg)`;
-    c.append(p);
+function lightBloom(){
+  const b=el('div',{class:'bloom'}); document.body.append(b);
+  const bk=el('div',{class:'bokeh'});
+  for(let i=0;i<16;i++){ const s=8+Math.random()*26; const p=el('i');
+    p.style.left=Math.random()*100+'vw'; p.style.width=p.style.height=s+'px';
+    p.style.opacity=(0.08+Math.random()*0.16).toFixed(2);
+    p.style.animationDuration=(2.6+Math.random()*2.4)+'s'; p.style.animationDelay=(Math.random()*.6)+'s';
+    bk.append(p);
   }
-  document.body.append(c);
-  setTimeout(()=>c.remove(), 3900);
+  document.body.append(bk);
+  setTimeout(()=>{ b.remove(); bk.remove(); }, 5600);
 }
 
 /* ---------- focus mode ---------- */
@@ -835,13 +848,18 @@ function viewToday(app){
   // focus mode banner
   const fpj=focusProject();
   if(fpj){
-    const rem=projRemaining(fpj), tot=projTotal(fpj);
     const f=feasibility(fpj);
+    const parted=hasParts(fpj);
+    const tot = parted ? fpj.parts.length : pTotal(fpj);
+    const dn  = parted ? fpj.parts.filter(s=>s.complete).length : pDone(fpj);
+    const noun = parted ? craft().part+(tot===1?'':'s') : 'steps';
     const b=el('div',{class:'focusbanner', onclick:()=>go('projects')});
-    b.append(el('div',{class:'ttl'}, [ '\u{1f3af} Focus: '+fpj.name ]));
-    b.append(el('div',{class:'bar', style:'margin-top:8px'},[ el('i',{style:`width:${tot?Math.round((tot-rem)/tot*100):0}%`}) ]));
-    b.append(el('div',{class:'eta'}, `${tot-rem} of ${tot} ${unit(fpj,tot)}${f&&f.finish?` · on track for ${dstr(f.finish)}`:''} · ${S.focus.restPerWeek} rest ${S.focus.restPerWeek===1?'night':'nights'}/wk`));
-    b.append(el('button',{class:'btn ghost sm', style:'margin-top:8px', onclick:e=>{ e.stopPropagation(); S.focus=null; save(); render(); }},'End focus'));
+    b.style.setProperty('--pc', projColorVar(fpj));
+    b.style.borderColor=projColorVar(fpj); b.style.boxShadow=`0 0 0 1px ${projColorVar(fpj)} inset`;
+    b.append(el('div',{class:'ttl', style:`color:${projColorVar(fpj)}`}, [ '\u{1f3af} Focus — '+fpj.name ]));
+    b.append(el('div',{class:'bar', style:'margin-top:8px'},[ el('i',{style:`width:${tot?Math.round(dn/tot*100):0}%;background:${projColorVar(fpj)}`}) ]));
+    b.append(el('div',{class:'eta'}, `${dn} of ${tot} ${noun}${f&&f.finish?` · ${craft().wrap} by ${dstr(f.finish)}`:''} · keeping ${S.focus.restPerWeek} rest ${S.focus.restPerWeek===1?'night':'nights'}/wk`));
+    b.append(el('button',{class:'btn ghost sm', style:'margin-top:9px', onclick:e=>{ e.stopPropagation(); S.focus=null; save(); render(); }},'End focus'));
     app.append(b);
   }
 
@@ -1581,15 +1599,21 @@ function viewYou(app){
   app.append(lc);
 
   const projDone=S.projects.filter(p=>p.archived).length;
-  const stagesDone=S.projects.reduce((t,p)=>t+(p.parts||[]).filter(s=>s.complete).length,0);
+  const partsDone=S.projects.reduce((t,p)=>t+(p.parts||[]).filter(s=>s.complete).length,0);
+  const projHrs=(S.sessions||[]).reduce((t,x)=>t+x.min,0)/60;
   const skillHrs=S.skills.reduce((t,k)=>t+skillMinutes(k),0)/60;
+  const bigNum=el('div',{class:'s', style:'grid-column:1/-1'},[
+    el('b',{class:'display', style:'font-size:2.2rem'}, String(projDone)),
+    el('span',{}, projDone===1?'project finished':'projects finished — the number that matters'),
+  ]);
   app.append(el('div',{class:'statgrid'},[
-    el('div',{class:'s'},[ el('b',{}, '\u{1f525} '+bestStreak()), el('span',{},'best routine streak') ]),
+    bigNum,
+    el('div',{class:'s'},[ el('b',{}, '\u{1f525} '+bestStreak()), el('span',{},'best chain') ]),
     el('div',{class:'s'},[ el('b',{}, '+'+xpToday()), el('span',{},'XP today') ]),
-    el('div',{class:'s'},[ el('b',{}, String(projDone)), el('span',{},projDone===1?'project finished':'projects finished') ]),
-    el('div',{class:'s'},[ el('b',{}, String(stagesDone)), el('span',{},'parts cleared') ]),
-    el('div',{class:'s'},[ el('b',{}, skillHrs>=1?skillHrs.toFixed(0)+'h':Math.round(skillHrs*60)+'m'), el('span',{},'skill practice') ]),
-    el('div',{class:'s'},[ el('b',{}, String(S.routines.length)), el('span',{},'active routines') ]),
+    el('div',{class:'s'},[ el('b',{}, String(partsDone)), el('span',{}, craft().wrap) ]),
+    el('div',{class:'s'},[ el('b',{}, projHrs>=1?projHrs.toFixed(0)+'h':Math.round(projHrs*60)+'m'), el('span',{},'in the '+(craft().body.replace(/^the /,''))) ]),
+    el('div',{class:'s'},[ el('b',{}, skillHrs>=1?skillHrs.toFixed(0)+'h':Math.round(skillHrs*60)+'m'), el('span',{},'practicing') ]),
+    el('div',{class:'s'},[ el('b',{}, String(S.routines.length)), el('span',{},'routines') ]),
   ]));
 
   if(S.skills.length){
@@ -1597,7 +1621,7 @@ function viewYou(app){
     sc.append(el('h3',{},'Skills'));
     S.skills.slice().sort((a,b)=>skillMinutes(b)-skillMinutes(a)).forEach(k=>{
       sc.append(el('div',{class:'weekrow'},[
-        el('div',{}, k.name),
+        el('div',{class:'inline', style:'gap:8px'},[ el('span',{class:'sdot', style:`background:${skillColorVar(k)}`}), el('div',{}, k.name) ]),
         el('div',{class:'tiny faint'}, `Lv ${skillLevel(k)} · ${fmtDur(skillMinutes(k))}`),
       ]));
     });
