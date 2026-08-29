@@ -222,14 +222,26 @@
   .bar{height:6px; border-radius:999px; background:var(--surface-2); overflow:hidden; margin-top:8px}
   .bar>i{display:block; height:100%; background:var(--accent)}
   .hl{background:var(--surface-2)}
-  .weekstrip{display:flex; gap:5px; margin-top:12px}
-  .wk{flex:1; height:40px; border-radius:9px; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:3px; font-size:.7rem; font-weight:700}
-  .wk.focus{background:var(--accent); color:var(--accent-ink)}
-  .wk.open{background:var(--surface); color:var(--muted); border:1px solid var(--line)}
-  .wk.rest{background:var(--surface); color:var(--faint); border:1px solid var(--line)}
-  .wk.off{border:1px dashed var(--line); color:var(--faint)}
-  .wk.today{box-shadow:0 0 0 2px var(--text)}
-  .wk .wdot{width:4px; height:4px; border-radius:50%; background:currentColor}
+  .weekstrip{display:flex; gap:5px; margin-top:14px}
+  .wk{flex:1; min-width:0; display:flex; flex-direction:column; align-items:center; gap:5px}
+  .wk .dl{font-size:.66rem; font-weight:700; color:var(--faint); letter-spacing:.02em}
+  .wk .frame{width:100%; height:46px; border-radius:7px; border:1px solid var(--line); background:var(--surface);
+    position:relative; overflow:hidden; display:flex; align-items:flex-end}
+  .wk .frame .blk{width:100%; height:100%}
+  .wk.rest .frame .blk{background:repeating-linear-gradient(135deg,var(--surface-2),var(--surface-2) 3px,transparent 3px,transparent 7px)}
+  .wk.off .frame{border-style:dashed; background:transparent}
+  .wk.today .frame{border-color:var(--text); box-shadow:0 0 0 1px var(--text)}
+  .wk .frame .wdot{position:absolute; top:4px; right:4px; width:5px; height:5px; border-radius:50%; background:var(--accent)}
+
+  .lanes{margin-top:14px; display:grid; gap:9px}
+  .lane{display:flex; align-items:center; gap:8px}
+  .lane .ln{width:66px; flex:none; font-size:.7rem; color:var(--muted); text-align:right; overflow:hidden; white-space:nowrap; text-overflow:ellipsis}
+  .lane .track{flex:1; height:14px; border-radius:99px; background:var(--surface-2); position:relative; overflow:visible}
+  .lane .track .seg{position:absolute; top:0; bottom:0; left:0; border-radius:99px; min-width:6px}
+  .lane .track .seg.late{opacity:.55; outline:1px solid var(--warn)}
+  .lane .track .flag{position:absolute; top:-4px; width:2px; height:22px; background:var(--faint); border-radius:2px}
+  .lane .track .flag.tight{background:var(--warn)}
+  .lanes .scale{display:flex; justify-content:space-between; font-size:.66rem; color:var(--faint); margin-left:66px; margin-top:2px}
   .agrow{display:flex; gap:11px; padding:11px 0; border-bottom:1px solid var(--line)}
   .agrow:last-child{border-bottom:0}
   .agrow .marker{width:3px; border-radius:2px; flex:0 0 auto; background:var(--line)}
@@ -637,6 +649,28 @@ function simFinishes(){
   _simKey=key; _simCache=buildProjection(150).finishes;
   return _simCache;
 }
+function planSpan(){
+  const fins=simFinishes()||[]; const t=todayISO(); let max=21;
+  fins.forEach(f=>{ const e=f.finish||f.partFinish; if(e) max=Math.max(max,daysBetween(t,e));
+    if(f.deadline) max=Math.max(max,daysBetween(t,f.deadline)); });
+  return Math.max(14, Math.min(120, max+2));
+}
+function planLanes(){
+  const fins=simFinishes()||[], t=todayISO(), span=planSpan();
+  return liveProjects().map(p=>{
+    const f=fins.find(x=>x.id===p.id)||{};
+    const end=f.finish||addDays(t,span);
+    const dl=deadlineOf(p);
+    const late=!!(f.finish && dl && f.finish>dl);
+    return {
+      p, color:projColorVar(p),
+      pct: Math.min(100, Math.max(4, daysBetween(t,end)/span*100)),
+      flag: dl ? daysBetween(t,dl)/span*100 : null,
+      tight: dl ? (daysBetween(t,dl)<=10 || late) : false,
+      late,
+    };
+  });
+}
 function feasibility(p){
   if(!deadlineOf(p)) return null;
   const f=(simFinishes()||[]).find(x=>x.id===p.id);
@@ -679,7 +713,7 @@ function buildProjection(days){
           if(w.si>=w.parts.length){ if(!w.finish) w.finish=iso; doneNote=' — done ✓'; }
           else if(finishedPart) doneNote=` — “${finishedPart}” done`;
         }
-        day.focus={name:w.p.name, part:(hasParts(w.p)&&w.parts[Math.min(w.si,w.parts.length-1)])?w.parts[Math.min(w.si,w.parts.length-1)].name:'',
+        day.focus={pid:w.p.id, color:projColorVar(w.p), name:w.p.name, part:(hasParts(w.p)&&w.parts[Math.min(w.si,w.parts.length-1)])?w.parts[Math.min(w.si,w.parts.length-1)].name:'',
           amount:amt, unit:unit(w.p,amt), note:doneNote, mins:w.minPer*(amt/Math.max(1,w.per))};
       }
     }
@@ -1346,12 +1380,42 @@ function viewPlan(app){
   const strip=el('div',{class:'weekstrip'});
   wk7.forEach(d=>{
     const cls = (d.mode==='project'&&d.focus)?'focus' : d.mode==='project'?'open' : d.mode==='rest'?'rest':'off';
+    const frame=el('div',{class:'frame'});
+    if(d.focus){
+      const h = 40 + Math.min(60, (d.focus.mins/180)*60);   // taller frame = longer session
+      frame.append(el('div',{class:'blk', style:`background:${d.focus.color};height:${h}%`}));
+    } else {
+      frame.append(el('div',{class:'blk'}));
+    }
+    if(d.events.length) frame.append(el('div',{class:'wdot'}));
     strip.append(el('div',{class:'wk '+cls+(d.iso===todayISO()?' today':'')},[
-      el('span',{}, WD1[d.dow]),
-      d.events.length ? el('span',{class:'wdot'}) : null,
+      el('span',{class:'dl'}, d.iso===todayISO()?'TDY':WD1[d.dow]),
+      frame,
     ]));
   });
   hl.append(strip);
+
+  // project lanes
+  const lanes=planLanes();
+  if(lanes.length){
+    const lw=el('div',{class:'lanes'});
+    lanes.forEach(L=>{
+      const track=el('div',{class:'track'});
+      const seg=el('div',{class:'seg'+(L.late?' late':'')});
+      seg.style.width=Math.max(4,L.pct)+'%';
+      seg.style.background=L.color;
+      track.append(seg);
+      if(L.flag!=null){
+        const fl=el('div',{class:'flag'+(L.tight?' tight':'')});
+        fl.style.left=Math.min(99,Math.max(1,L.flag))+'%';
+        track.append(fl);
+      }
+      lw.append(el('div',{class:'lane'},[ el('div',{class:'ln'}, L.p.name), track ]));
+    });
+    lw.append(el('div',{class:'scale'},[ el('span',{},'today'), el('span',{}, dstr(addDays(todayISO(), planSpan()))) ]));
+    hl.append(el('div',{class:'faint tiny', style:'margin-top:14px'},'Where each project lands · flag = deadline'));
+    hl.append(lw);
+  }
   app.append(hl);
 
   // agenda
@@ -1359,12 +1423,12 @@ function viewPlan(app){
   out.forEach(d=>{
     const type = (d.mode==='project'&&d.focus)?'focus' : d.mode==='rest'?'rest' : d.mode==='off'?'off':'open';
     const row=el('div',{class:'agrow'});
-    row.append(el('div',{class:'marker '+type}));
+    row.append(el('div',{class:'marker '+type, style: d.focus?`background:${d.focus.color}`:''}));
     const mid=el('div',{style:'flex:1;min-width:0'});
     mid.append(el('div',{style:'font-weight:650;font-size:.8rem;color:var(--muted)'},
       d.iso===todayISO()?'Today':new Date(d.iso+'T00:00').toLocaleDateString(undefined,{weekday:'long',month:'short',day:'numeric'})));
     if(d.focus){
-      mid.append(el('div',{style:'font-weight:600;margin-top:1px'}, d.focus.name + (d.focus.part?' · '+d.focus.part:'')));
+      mid.append(el('div',{style:`font-weight:600;margin-top:1px;color:${d.focus.color}`}, d.focus.name + (d.focus.part?' · '+d.focus.part:'')));
       mid.append(el('div',{class:'faint tiny'}, `${d.focus.amount} ${d.focus.unit} · ${fmtDur(d.focus.mins)}${d.focus.note||''}`));
     } else {
       mid.append(el('div',{class:'faint', style:'margin-top:1px'}, d.mode==='rest'?'Rest night' : d.mode==='off'?'Off' : 'Focus night — open'));
