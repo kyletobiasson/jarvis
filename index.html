@@ -120,6 +120,12 @@
   .startbtn.paused{background:var(--surface-2)}
   .startbtn.paused .dot{animation:none;opacity:.35}
   .startbtn.quiet{background:var(--surface-2); color:var(--muted); font-weight:650}
+  #toast{position:fixed; left:50%; bottom:calc(70px + var(--safe-b)); transform:translateX(-50%) translateY(16px);
+    z-index:120; background:var(--text); color:var(--bg); border-radius:12px; padding:11px 15px;
+    display:none; align-items:center; gap:16px; font-size:.86rem; font-weight:650; box-shadow:var(--shadow);
+    max-width:calc(100% - 24px); opacity:0; transition:opacity .2s, transform .2s}
+  #toast.show{display:flex; opacity:1; transform:translateX(-50%) translateY(0)}
+  #toast button{background:none; border:0; color:var(--accent); font-weight:800; font-size:.86rem; padding:2px 4px; flex:none}
 
   /* evening ribbon */
   .ribbon{display:flex; gap:5px; margin:14px 0 2px}
@@ -479,6 +485,25 @@ function levelBlurb(n){
   return 'You’re rolling.';
 }
 function flushCele(){ if(_pendingCele){ const c=_pendingCele; _pendingCele=null; celebrate(c); } }
+
+/* ---------- undo ---------- */
+let _undo=null;
+function renderToast(){
+  let t=$('#toast');
+  if(!t){ t=el('div',{id:'toast'}); document.body.append(t); }
+  t.innerHTML='';
+  if(!_undo){ t.classList.remove('show'); return; }
+  t.append(el('span',{}, _undo.label));
+  t.append(el('button',{onclick:()=>{ const f=_undo.fn; clearTimeout(_undo.timer); _undo=null; renderToast(); f(); }}, 'Undo'));
+  t.classList.add('show');
+}
+function offerUndo(label, fn){
+  if(_undo) clearTimeout(_undo.timer);
+  _undo={label, fn, timer:setTimeout(()=>{ _undo=null; renderToast(); }, 6000)};
+  renderToast();
+}
+function restoreSnap(snap){ try{ S=JSON.parse(snap); migrate(S); save(); buildNav(); render(); }catch(e){} }
+function withUndo(label, doFn){ const snap=JSON.stringify(S); doFn(); offerUndo(label, ()=>restoreSnap(snap)); }
 let _actx=null;
 // short warm chime — a soft major triad, sine + lowpass. Off unless S.sound.
 function chime(){
@@ -1132,15 +1157,16 @@ function checkProjectWrap(p, iso, wasLive){
   }
 }
 function afterStep(p, s, iso){
-  const wasLive=projLive(p);
+  const snap=JSON.stringify(S), wasArch=p.archived, wasLive=projLive(p);
   s.done=!s.done; s.completedAt = s.done ? iso : ''; p.lastWorked=iso;
   award(s.done?50:-50, s.text);
   afterProgress(p, iso);
   checkProjectWrap(p, iso, wasLive);
   checkDayCleared(iso); save(); render(); flushCele();
+  if(!wasArch && p.archived) offerUndo(`Wrapped “${p.name}”`, ()=>restoreSnap(snap));
 }
 function afterTask(p, t, iso){
-  const wasLive=projLive(p);
+  const snap=JSON.stringify(S), wasArch=p.archived, wasLive=projLive(p);
   t.complete=!t.complete; t.completedAt = t.complete ? iso : ''; p.lastWorked=iso;
   award(t.complete?120:-120, 'Task: '+t.name);
   if(t.complete){
@@ -1149,6 +1175,7 @@ function afterTask(p, t, iso){
   }
   checkProjectWrap(p, iso, wasLive);
   checkDayCleared(iso); save(); render(); flushCele();
+  if(!wasArch && p.archived) offerUndo(`Wrapped “${p.name}”`, ()=>restoreSnap(snap));
 }
 
 /* ---- session timer (pausable: since = running-segment start or null; accumMs = banked) ---- */
@@ -1462,11 +1489,11 @@ function projectCard(p, iso, isNext, canDrag){
     if(hasParts(p) && p.priority!=='planning')
       act.append(el('button',{class:'btn sm'+(isFocus?' primary':''), onclick:()=> isFocus ? (S.focus=null, save(), render()) : chooseFocus(p) }, isFocus?'🎯 Focus ✓':'🎯 Focus'));
     act.append(el('button',{class:'btn sm', onclick:()=>openProject(p.id)},'Open'));
-    act.append(el('button',{class:'btn sm', onclick:()=>{ p.archived=true; if(S.focus&&S.focus.id===p.id)S.focus=null; save(); render(); }},'Archive'));
+    act.append(el('button',{class:'btn sm', onclick:()=>withUndo(`Archived “${p.name}”`, ()=>{ p.archived=true; p.completedAt=p.completedAt||todayISO(); if(S.focus&&S.focus.id===p.id)S.focus=null; save(); render(); })},'Archive'));
   } else {
     act.append(el('button',{class:'btn sm', onclick:()=>openProject(p.id)},'Open'));
     act.append(el('button',{class:'btn sm', onclick:()=>{ p.archived=false; p.completedAt=''; save(); render(); }},'Reopen'));
-    act.append(armDelete('Delete', ()=>{ S.projects=S.projects.filter(x=>x!==p); save(); render(); }));
+    act.append(armDelete('Delete', ()=>withUndo(`Deleted “${p.name}”`, ()=>{ S.projects=S.projects.filter(x=>x!==p); save(); render(); })));
   }
   c.append(act);
   return c;
@@ -1776,10 +1803,10 @@ function viewProject(app){
       const isF=S.focus&&S.focus.id===p.id;
       act.append(el('button',{class:'btn sm'+(isF?' primary':''), onclick:()=> isF ? (S.focus=null, save(), render()) : chooseFocus(p) }, isF?'🎯 Focus ✓':'🎯 Focus'));
     }
-    act.append(el('button',{class:'btn sm', onclick:()=>{ p.archived=true; p.completedAt=p.completedAt||iso; if(S.focus&&S.focus.id===p.id)S.focus=null; save(); go('projects'); }},'Archive'));
+    act.append(el('button',{class:'btn sm', onclick:()=>withUndo(`Archived “${p.name}”`, ()=>{ p.archived=true; p.completedAt=p.completedAt||iso; if(S.focus&&S.focus.id===p.id)S.focus=null; save(); go('projects'); })},'Archive'));
   } else {
     act.append(el('button',{class:'btn sm', onclick:()=>{ p.archived=false; p.completedAt=''; save(); render(); }},'Reopen'));
-    act.append(armDelete('Delete', ()=>{ S.projects=S.projects.filter(x=>x!==p); save(); go('projects'); }));
+    act.append(armDelete('Delete', ()=>withUndo(`Deleted “${p.name}”`, ()=>{ S.projects=S.projects.filter(x=>x!==p); save(); go('projects'); })));
   }
   app.append(act);
 
@@ -1813,7 +1840,7 @@ function viewRoutines(app){
     if(r.hint) c.append(el('div',{class:'muted tiny', style:'margin-top:4px'}, r.hint));
     c.append(el('div',{class:'row-actions'},[
       el('button',{class:'btn sm', onclick:()=>editRoutine(r)},'Edit'),
-      armDelete('Delete', ()=>{ S.routines=S.routines.filter(x=>x!==r); save(); render(); }),
+      armDelete('Delete', ()=>withUndo(`Deleted “${r.name}”`, ()=>{ S.routines=S.routines.filter(x=>x!==r); save(); render(); })),
     ]));
     app.append(c);
   });
