@@ -334,7 +334,7 @@ const KEY='pa.v1';
 // Ships blank. Everything is created on-device via the setup flow and stored in
 // localStorage — nothing personal lives in this file or the repo.
 const DEFAULTS={
-  user:'there', assistant:'Jarvis', craft:'other',
+  user:'there', assistant:'Jarvis', craft:'other', sound:false,
   workStart:'08:00', driveMin:15, morningMin:30,
   wakeOverride:'', sleepGoalH:8, workEnd:'17:00',
   week:{0:'project',1:'project',2:'rest',3:'project',4:'rest',5:'off',6:'project'},
@@ -354,6 +354,7 @@ function migrate(s){
   ['screen','edmontaskLeft','edmontaskPerSession','rails','waterGoal','bottleOz'].forEach(k=>delete s[k]);
   s.counters = s.counters || {};
   s.craft = s.craft || 'other';
+  s.sound = !!s.sound;
   s.sessions = s.sessions || [];
   s.starts = s.starts || [];
   if(s.activeSession && (!s.activeSession.projectId || !s.activeSession.startedAt)) s.activeSession=null;
@@ -418,8 +419,32 @@ function levelBlurb(n){
   return 'You’re rolling.';
 }
 function flushCele(){ if(_pendingCele){ const c=_pendingCele; _pendingCele=null; celebrate(c); } }
+let _actx=null;
+// short warm chime — a soft major triad, sine + lowpass. Off unless S.sound.
+function chime(){
+  if(!S.sound) return;
+  try{
+    const AC=window.AudioContext||window.webkitAudioContext; if(!AC) return;
+    _actx = _actx || new AC();
+    const ac=_actx; if(ac.state==='suspended') ac.resume();
+    const now=ac.currentTime;
+    const master=ac.createGain(); master.connect(ac.destination);
+    master.gain.setValueAtTime(0.0001, now);
+    master.gain.exponentialRampToValueAtTime(0.32, now+0.03);
+    master.gain.exponentialRampToValueAtTime(0.0001, now+1.7);
+    const lp=ac.createBiquadFilter(); lp.type='lowpass'; lp.frequency.value=2400; lp.Q.value=0.6; lp.connect(master);
+    [523.25, 659.25, 783.99].forEach((f,i)=>{
+      const o=ac.createOscillator(); o.type='sine'; o.frequency.value=f;
+      const g=ac.createGain(); g.gain.value=0.34;
+      o.connect(g); g.connect(lp);
+      const t=now + i*0.09;
+      o.start(t); o.stop(t+1.6);
+    });
+  }catch(e){}
+}
 function celebrate(o){
   document.querySelectorAll('.celebrate,.bloom,.bokeh').forEach(x=>x.remove());
+  chime();
   lightBloom();
   const ov=el('div',{class:'celebrate', onclick:()=>ov.remove()}, [ el('div',{},[
     o.kicker?el('div',{class:'kicker'}, o.kicker):null,
@@ -1686,6 +1711,12 @@ function viewSettings(app){
   who.append(field('Assistant name', `<input id="s_asst" value="${esc(S.assistant)}">`));
   app.append(who);
 
+  const snd=el('div',{class:'card'});
+  snd.append(el('h3',{},'Sound'));
+  snd.append(checkboxRow('s_sound','Warm chime on celebrations', S.sound));
+  snd.append(el('div',{class:'faint tiny', style:'margin-top:2px'},'Off by default. Plays only when a part or project wraps, a day clears, or you level up.'));
+  app.append(snd);
+
   const sl=el('div',{class:'card'});
   sl.append(el('h3',{},'Sleep & schedule'));
   sl.append(el('div',{class:'grid2'},[
@@ -1714,6 +1745,7 @@ function viewSettings(app){
   bind('s_ws',v=>S.workStart=v); bind('s_we',v=>S.workEnd=v);
   bind('s_drive',v=>S.driveMin=+v||0); bind('s_morn',v=>S.morningMin=+v||0);
   bind('s_sleep',v=>S.sleepGoalH=+v||8); bind('s_wake',v=>S.wakeOverride=v);
+  const sco=$('#s_sound'); if(sco) sco.addEventListener('change',()=>{ S.sound=sco.checked; save(); if(S.sound) chime(); });
   refreshCalc();
   function refreshCalc(){ const c=$('#s_calc'); if(c) c.textContent=`→ Wake ${fmtHM(wakeMin())} · leave ${fmtHM(leaveMin())} · wind-down ${fmtHM(windDownMin())} · lights out ${fmtHM(asleepMin())}`; }
 }
