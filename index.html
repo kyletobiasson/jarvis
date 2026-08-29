@@ -1403,7 +1403,17 @@ function dragList(container, onReorder){
   });
 }
 
-const PTYPES=['Script','Screenplay','Novel','Short story','Album','EP','Song','Short film','Feature','Documentary','Podcast season','Photo series','Exhibition','Zine','Comic','Game','App','Website','Course','Talk','Event','Portfolio'];
+const PTYPES=['Script','Novel','Short story','Album','EP','Short film','Feature','Documentary','Podcast','Photo series','Exhibition','Zine','Comic','Game','App','Course','Talk','Event'];
+// free-text input + tappable suggestion chips (datalist isn't supported on iOS PWAs)
+function typeField(id, val){
+  const input=el('input',{id, value:val||'', placeholder:'Script, Novel, Album, Event…', oninput:e=>syncTypeChips(chips, e.target.value)});
+  const chips=el('div',{class:'chips', style:'margin-top:7px'});
+  PTYPES.forEach(t=>chips.append(el('button',{class:'chip', style:'padding:6px 11px;font-size:.8rem',
+    onclick:()=>{ input.value=t; syncTypeChips(chips, t); }}, t)));
+  syncTypeChips(chips, val||'');
+  return el('label',{class:'field'},[ el('span',{class:'lab'},'Type (optional)'), input, chips ]);
+}
+function syncTypeChips(wrap, val){ [...wrap.children].forEach(b=>b.classList.toggle('on', b.textContent===val)); }
 let openProjId=null;
 function openProject(id){ openProjId=id; go('project'); }
 function currentProject(){ return S.projects.find(x=>x.id===openProjId); }
@@ -1512,7 +1522,7 @@ function newProject(){
       box.append(el('h2',{},'New project'));
       box.append(el('p',{class:'muted', style:'margin:2px 0 10px'},'What are you making?'));
       box.append(field('Title', `<input id="w_name" value="${esc(D.name)}" placeholder="Name this project">`));
-      box.append(field('Type (optional)', `<input id="w_type" list="ptypes" value="${esc(D.type)}" placeholder="Script, Novel, Album, Event…"><datalist id="ptypes">${PTYPES.map(x=>`<option value="${x}">`).join('')}</datalist>`));
+      box.append(typeField('w_type', D.type));
     } else if(D.step===1){
       box.append(el('h2',{},'Priority & pace'));
       box.append(labeled('How important is this right now?', segmented(PPRIOS, D.prio, v=>D.prio=v)));
@@ -1573,7 +1583,7 @@ function editProjectDetails(p){
   const md=+p.minPerSession||60;
   sheet('Project details', [
     field('Title', `<input id="pd_name" value="${esc(p.name)}" placeholder="Name this project">`),
-    field('Type (optional)', `<input id="pd_type" list="ptypes" value="${esc(p.type||'')}" placeholder="Script, Novel, Album, Event…"><datalist id="ptypes">${PTYPES.map(x=>`<option value="${x}">`).join('')}</datalist>`),
+    typeField('pd_type', p.type||''),
     labeled('Priority', segmented(PPRIOS, prio, v=>prio=v)),
     el('div',{class:'grid2'},[
       field('Deadline (optional)', `<input id="pd_dl" type="date" value="${p.deadline||''}">`),
@@ -2281,7 +2291,7 @@ function onboard(){
       box.append(el('h2',{}, 'A project with a finish line?'));
       box.append(el('p',{class:'muted', style:'margin:4px 0 10px'}, 'Something you’re working toward. Skip if none — add projects anytime.'));
       box.append(field('Title', `<input id="w_pn" value="${esc(st.proj.name)}" placeholder="e.g. Podcast — season 2">`));
-      box.append(field('Type (optional)', `<input id="w_ptype" list="ptypes" value="${esc(st.proj.type||'')}" placeholder="Script, Novel, Album, Event…"><datalist id="ptypes">${PTYPES.map(x=>`<option value="${x}">`).join('')}</datalist>`));
+      box.append(typeField('w_ptype', st.proj.type||''));
       box.append(labeled('Structure', segmented([['flat','A task list'],['parts','Repeating parts']], st.proj.mode, v=>{ capture(); st.proj.mode=v; draw(); })));
       if(st.proj.mode==='flat'){
         box.append(field('Deadline (optional)', `<input id="w_pd" type="date" value="${st.proj.deadline||''}">`));
