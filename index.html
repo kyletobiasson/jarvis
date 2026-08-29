@@ -288,6 +288,12 @@
   .chain > i[data-l="2"]{background:var(--pc); opacity:.66}
   .chain > i[data-l="3"]{background:var(--pc)}
   .chain > i.today{outline:1.5px solid var(--text); outline-offset:1px}
+
+  /* history */
+  .hrow{display:flex; align-items:center; gap:10px; padding:9px 0; border-bottom:1px solid var(--line)}
+  .hrow:last-child{border-bottom:0}
+  .hdot{width:8px; height:8px; border-radius:50%; flex:0 0 auto}
+  .hrow .htype{text-transform:uppercase; letter-spacing:.07em; font-size:.6rem; font-weight:700; color:var(--faint); white-space:nowrap}
 </style>
 </head>
 <body>
@@ -333,7 +339,7 @@ const DEFAULTS={
   wakeOverride:'', sleepGoalH:8, workEnd:'17:00',
   week:{0:'project',1:'project',2:'rest',3:'project',4:'rest',5:'off',6:'project'},
   projects:[], routines:[], skills:[], events:[], tasks:[], checks:{}, counters:{},
-  sessions:[], activeSession:null, xp:0, xpLog:[], focus:null, onboarded:false,
+  sessions:[], activeSession:null, starts:[], xp:0, xpLog:[], focus:null, onboarded:false,
 };
 
 let S = load();
@@ -349,11 +355,12 @@ function migrate(s){
   s.counters = s.counters || {};
   s.craft = s.craft || 'other';
   s.sessions = s.sessions || [];
+  s.starts = s.starts || [];
   if(s.activeSession && (!s.activeSession.projectId || !s.activeSession.startedAt)) s.activeSession=null;
   if(s.water){ s.counters.water = Object.assign({}, s.counters.water, s.water); delete s.water; }
   for(const k in s.week) if(s.week[k]==='edmontask') s.week[k]='project';
   s.projects = (s.projects||[]).map((p,i)=>{ const q=Object.assign({
-    id:uid(), name:'', deadline:'', unitLabel:'task', perSession:2, minPerSession:45, priority:'normal', color:PCOLORS[i%PCOLORS.length], notes:'', subs:[], parts:[], pinned:false, archived:false, lastWorked:''
+    id:uid(), name:'', deadline:'', unitLabel:'task', perSession:2, minPerSession:45, priority:'normal', color:PCOLORS[i%PCOLORS.length], notes:'', subs:[], parts:[], pinned:false, archived:false, lastWorked:'', createdAt:'', completedAt:''
   }, p); delete q.active;
     if(!q.color) q.color=PCOLORS[i%PCOLORS.length];
     const src = q.parts && q.parts.length ? q.parts : (q.stages||[]);
@@ -361,13 +368,15 @@ function migrate(s){
       let subs = (s.subs && s.subs.length) ? s.subs.map(x=>({text:x.text||'', done:!!x.done}))
         : ((+s.total||0) > 1 ? Array.from({length:+s.total},(_,i)=>({text:'Step '+(i+1), done:i<(+s.done||0)}))
         : [{text:s.name||'Complete', done:!!s.complete}]);
-      return {id:s.id||uid(), name:s.name||'', deadline:s.deadline||'', complete:!!s.complete, subs};
+      return {id:s.id||uid(), name:s.name||'', deadline:s.deadline||'', complete:!!s.complete, completedAt:s.completedAt||'', subs};
     });
+    q.parts.forEach(pt=>{ pt.subs=(pt.subs||[]).map(x=>({text:x.text||'', done:!!x.done, completedAt:x.completedAt||''})); });
     if(!q.parts.length && (!q.subs || !q.subs.length) && (+p.total||0) > 1){
       const lbl=(p.unitLabel||'Item').replace(/s$/i,'');
       q.subs = Array.from({length:+p.total},(_,i)=>({text:lbl+' '+(i+1), done:i<(+p.done||0)}));
     }
-    q.subs = (q.subs||[]).map(x=>({text:x.text||'', done:!!x.done}));
+    q.subs = (q.subs||[]).map(x=>({text:x.text||'', done:!!x.done, completedAt:x.completedAt||''}));
+    if(q.archived && !q.completedAt) q.completedAt = q.lastWorked || '';
     delete q.stages; delete q.total; delete q.done; delete q.unitLabel;
     return q; });
   s.routines = (s.routines||[]).map(r=>Object.assign({
@@ -769,7 +778,7 @@ let view='today';
 function buildNav(){
   const n=$('#nav'); n.innerHTML='';
   for(const [id,label,path] of TABS){
-    const on = id===view || (id==='you' && view==='settings');
+    const on = id===view || (id==='you' && (view==='settings'||view==='history'));
     n.append(el('button',{class:on?'on':'', onclick:()=>go(id)},[
       el('span',{html:`<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">${path}</svg>`}),
       label,
@@ -780,7 +789,7 @@ function go(v){ view=v; buildNav(); window.scrollTo(0,0); render(); }
 function render(){
   const y=window.scrollY;
   const app=$('#app'); app.innerHTML='';
-  ({today:viewToday,projects:viewProjects,routines:viewRoutines,skills:viewSkills,plan:viewPlan,you:viewYou,settings:viewSettings}[view]||viewToday)(app);
+  ({today:viewToday,projects:viewProjects,routines:viewRoutines,skills:viewSkills,plan:viewPlan,you:viewYou,settings:viewSettings,history:viewHistory}[view]||viewToday)(app);
   app.append(el('div',{class:'foot'}, S.assistant.toUpperCase()));
   window.scrollTo(0,y);
   setTimeout(()=>{ justTapId=null; }, 380);
@@ -965,18 +974,18 @@ function taskRow(iso, r){
 function afterProgress(p, iso){
   const c=curr(p);
   if(hasParts(p) && c!==p && (c.subs||[]).every(x=>x.done) && !c.complete){
-    c.complete=true;
+    c.complete=true; c.completedAt=iso;
     const dn=p.parts.filter(s=>s.complete).length;
     if(dn<p.parts.length) award(250,'Part done: '+c.name, {cele:{kicker:craft().part+' complete', big:'“'+c.name+'” '+craft().wrap, sub:`${p.name} · ${dn} of ${p.parts.length}`}});
   }
 }
 function afterStep(p, s, iso){
   const wasLive=projLive(p);
-  s.done=!s.done; p.lastWorked=iso;
+  s.done=!s.done; s.completedAt = s.done ? iso : ''; p.lastWorked=iso;
   award(s.done?50:-50, s.text);
   afterProgress(p, iso);
   if(wasLive && !projLive(p)){
-    p.archived=true;
+    p.archived=true; p.completedAt=iso;
     if(S.focus && S.focus.id===p.id) S.focus=null;
     award(600,'Project done: '+p.name, {cele:{kicker:'Wrapped', big:p.name, sub:'Finished. Off your plate for good.'}});
   }
@@ -992,6 +1001,8 @@ function fmtClock(mins){ let s=Math.floor(mins*60); const h=Math.floor(s/3600); 
 function startSession(p){
   if(S.activeSession && S.activeSession.projectId!==p.id) stopSession(true);
   S.activeSession={projectId:p.id, startedAt:Date.now()};
+  (S.starts||(S.starts=[])).unshift({ts:Date.now(), projectId:p.id});
+  if(S.starts.length>300) S.starts.length=300;
   save(); render(); ensureTick();
 }
 function stopSession(silent){
@@ -1218,7 +1229,7 @@ function textToTodos(t){ return (t||'').split('\n').map(l=>l.trim()).filter(Bool
 
 function editProject(p){
   const isNew=!p;
-  p = p || {id:uid(), name:'', deadline:'', perSession:2, minPerSession:45, priority:'normal', notes:'', subs:[], parts:[], pinned:false, archived:false, lastWorked:''};
+  p = p || {id:uid(), name:'', deadline:'', perSession:2, minPerSession:45, priority:'normal', notes:'', subs:[], parts:[], pinned:false, archived:false, lastWorked:'', createdAt:'', completedAt:''};
   const D={
     name:p.name, prio:p.priority, notes:p.notes||'',
     per:p.perSession||2, min:p.minPerSession||45,
@@ -1226,7 +1237,7 @@ function editProject(p){
     deadline:p.deadline||'',
     flatText: todosToText(p.subs),
     tmpl:'',
-    parts:(p.parts||[]).map(s=>({id:s.id, name:s.name, deadline:s.deadline||'', complete:!!s.complete, text:todosToText(s.subs), open:false})),
+    parts:(p.parts||[]).map(s=>({id:s.id, name:s.name, deadline:s.deadline||'', complete:!!s.complete, completedAt:s.completedAt||'', text:todosToText(s.subs), open:false})),
     genBase:'Episode', genN:9,
   };
   const bodyBox=el('div',{});
@@ -1299,13 +1310,14 @@ function editProject(p){
     } else {
       const clean=D.parts.filter(pt=>(pt.name||'').trim() || textToTodos(pt.text).length).map(pt=>{
         const subs=textToTodos(pt.text);
+        const complete = subs.length ? subs.every(x=>x.done) : !!pt.complete;
         return {id:pt.id||uid(), name:(pt.name||'').trim()||'Part', deadline:pt.deadline||'',
-          complete: subs.length ? subs.every(x=>x.done) : !!pt.complete, subs: subs.length?subs:[{text:'Complete', done:!!pt.complete}]};
+          complete, completedAt: complete ? (pt.completedAt||todayISO()) : '', subs: subs.length?subs:[{text:'Complete', done:!!pt.complete}]};
       });
       if(!clean.length) return false;
       p.parts=clean; p.subs=[];
     }
-    if(isNew) S.projects.push(p);
+    if(isNew){ p.createdAt=todayISO(); S.projects.push(p); }
     save(); render(); return true;
   }, isNew?null:()=>{ S.projects=S.projects.filter(x=>x!==p); if(S.focus&&S.focus.id===p.id)S.focus=null; save(); closeSheet(); render(); });
 }
@@ -1656,6 +1668,7 @@ function viewYou(app){
   });
   if(!S.xpLog||!S.xpLog.length) feed.append(el('div',{class:'faint'},'Nothing logged yet. Go check something off.'));
   fc.append(feed);
+  fc.append(el('button',{class:'btn ghost sm block', style:'margin-top:10px', onclick:()=>go('history')}, 'Full history →'));
   app.append(fc);
 
   app.append(el('button',{class:'btn block', style:'margin-top:14px', onclick:()=>go('settings')}, '⚙  Settings'));
@@ -1703,6 +1716,79 @@ function viewSettings(app){
   bind('s_sleep',v=>S.sleepGoalH=+v||8); bind('s_wake',v=>S.wakeOverride=v);
   refreshCalc();
   function refreshCalc(){ const c=$('#s_calc'); if(c) c.textContent=`→ Wake ${fmtHM(wakeMin())} · leave ${fmtHM(leaveMin())} · wind-down ${fmtHM(windDownMin())} · lights out ${fmtHM(asleepMin())}`; }
+}
+
+/* ===== HISTORY ===== */
+let histFilter={type:'all', pid:'all'};
+function cap(s){ return (s||'').replace(/^./,c=>c.toUpperCase()); }
+function histDateLabel(iso){
+  const t=todayISO();
+  if(iso===t) return 'Today';
+  if(iso===addDays(t,-1)) return 'Yesterday';
+  return new Date(iso+'T00:00').toLocaleDateString(undefined,{weekday:'long', month:'long', day:'numeric'});
+}
+function historyEntries(){
+  const E=[];
+  const pName=id=>{ const p=S.projects.find(x=>x.id===id); return p?p.name:'a project'; };
+  const noon=iso=>Date.parse(iso+'T12:00');
+  (S.projects||[]).forEach(p=>{
+    if(p.createdAt) E.push({ts:noon(p.createdAt), date:p.createdAt, type:'added', pid:p.id, text:`Added ${p.name}`});
+    if(p.completedAt) E.push({ts:noon(p.completedAt)+1, date:p.completedAt, type:'finished', pid:p.id, text:`Wrapped ${p.name}`});
+    (p.parts||[]).forEach(pt=>{
+      if(pt.completedAt) E.push({ts:noon(pt.completedAt), date:pt.completedAt, type:'finished', pid:p.id, text:`${cap(craft().part)} done — ${pt.name}`, sub:p.name});
+      (pt.subs||[]).forEach(x=>{ if(x.completedAt) E.push({ts:noon(x.completedAt), date:x.completedAt, type:'finished', pid:p.id, text:x.text, sub:`${p.name} · ${pt.name}`, small:true}); });
+    });
+    (p.subs||[]).forEach(x=>{ if(x.completedAt) E.push({ts:noon(x.completedAt), date:x.completedAt, type:'finished', pid:p.id, text:x.text, sub:p.name, small:true}); });
+  });
+  (S.starts||[]).forEach(x=>{
+    const d=todayISO(new Date(x.ts));
+    E.push({ts:x.ts, date:d, type:'started', pid:x.projectId, text:`Started a session — ${pName(x.projectId)}`});
+  });
+  (S.sessions||[]).forEach(s=>{
+    E.push({ts:noon(s.date)+2, date:s.date, type:'logged', pid:s.projectId, text:`${pName(s.projectId)} — ${fmtDur(s.min)}`, sub:`on ${craft().body}`});
+  });
+  (S.skills||[]).forEach(k=>(k.sessions||[]).forEach(s=>{
+    E.push({ts:noon(s.date)+2, date:s.date, type:'logged', sid:k.id, text:`${k.name} — ${fmtDur(s.min)}`, sub:'practice'});
+  }));
+  return E.sort((a,b)=>b.ts-a.ts);
+}
+function viewHistory(app){
+  app.append(el('header',{class:'hero'},[
+    el('button',{class:'btn ghost sm', style:'padding:4px 8px;margin-bottom:8px', onclick:()=>go('you')}, '← You'),
+    el('div',{class:'greet'},'History'),
+    el('div',{class:'sub'},'Everything you’ve added, started, finished and logged.'),
+  ]));
+  let E=historyEntries();
+  const allProjs=[...new Set(E.map(e=>e.pid).filter(Boolean))]
+    .map(id=>[id, (S.projects.find(x=>x.id===id)||{}).name||'—']);
+  const types=[['all','All'],['added','Added'],['started','Started'],['finished','Finished'],['logged','Logged']];
+  if(!allProjs.some(([id])=>id===histFilter.pid)) histFilter.pid='all';
+  app.append(labeled('Type', segmented(types, histFilter.type, v=>{ histFilter.type=v; render(); })));
+  if(allProjs.length>1) app.append(labeled('Project', segmented([['all','All'],...allProjs], histFilter.pid, v=>{ histFilter.pid=v; render(); })));
+
+  if(histFilter.type!=='all') E=E.filter(e=>e.type===histFilter.type);
+  if(histFilter.pid!=='all') E=E.filter(e=>e.pid===histFilter.pid);
+  if(!E.length){ app.append(el('div',{class:'empty'},'Nothing logged in this view yet.')); return; }
+
+  let lastDate=null, card=null;
+  E.forEach(e=>{
+    if(e.date!==lastDate){
+      lastDate=e.date; card=el('div',{class:'card'});
+      card.append(el('div',{class:'faint tiny', style:'margin-bottom:2px;font-weight:700;letter-spacing:.03em'}, histDateLabel(e.date)));
+      app.append(card);
+    }
+    const k=e.sid && S.skills.find(x=>x.id===e.sid);
+    const p=e.pid && S.projects.find(x=>x.id===e.pid);
+    const col = k?skillColorVar(k) : p?projColorVar(p) : 'var(--faint)';
+    const mid=el('div',{style:'flex:1;min-width:0'});
+    mid.append(el('div',{class:e.small?'tiny':'', style:'font-weight:600'+(e.small?';color:var(--muted)':'')}, e.text));
+    if(e.sub) mid.append(el('div',{class:'faint tiny'}, e.sub));
+    card.append(el('div',{class:'hrow'},[
+      el('span',{class:'hdot', style:`background:${col}`}),
+      mid,
+      el('span',{class:'htype'}, e.type),
+    ]));
+  });
 }
 
 /* ---------- form helpers ---------- */
@@ -1881,11 +1967,11 @@ function onboard(){
       S.routines.push({id:uid(), name:'Practice a skill', hint:'10 minutes — pick one', cadence:{type:'daily'}, slot:'winddown', priority:'low', skipRest:false, lock:'', kind:'skill', goal:1, oz:0});
     if(st.proj && st.proj.name){
       const base={id:uid(), name:st.proj.name, deadline:st.proj.deadline||'', perSession:2, minPerSession:45,
-        priority:'normal', color:nextColor(), notes:'', subs:[], parts:[], pinned:false, archived:false, lastWorked:''};
+        priority:'normal', color:nextColor(), notes:'', subs:[], parts:[], pinned:false, archived:false, lastWorked:'', createdAt:todayISO(), completedAt:''};
       if(st.proj.mode==='parts' && st.proj.n>0){
         const tpl=textToTodos(st.proj.tmpl);
         const pb=st.proj.base || CRAFTS[st.craft].part.replace(/^./,c=>c.toUpperCase());
-        for(let i=1;i<=st.proj.n;i++) base.parts.push({id:uid(), name:`${pb} ${i}`, deadline:'', complete:false,
+        for(let i=1;i<=st.proj.n;i++) base.parts.push({id:uid(), name:`${pb} ${i}`, deadline:'', complete:false, completedAt:'',
           subs: tpl.length?tpl.map(x=>({...x})):[{text:'Complete', done:false}]});
       } else {
         base.subs = textToTodos(st.proj.flatText);
