@@ -1901,7 +1901,7 @@ function editRoutine(r){
     const typeSel=el('select',{onchange:e=>{ d.cadence={type:e.target.value, n:2, days:d.cadence.days||[new Date().getDay()], date:d.cadence.date||1, anchor:todayISO()}; drawCad(); }});
     [['daily','Every day'],['everyN','Every N days'],['weekdays','Certain weekdays'],['weeklyN','Every N weeks'],['monthly','Monthly']].forEach(([v,l])=>
       typeSel.append(el('option',{value:v, selected:v===t?'selected':null}, l)));
-    cadBox.append(labeled('Repeats', typeSel));
+    cadBox.append(labeled('How often', typeSel));
     if(t==='everyN') cadBox.append(field('Every how many days?', numInput(d.cadence.n||2, v=>d.cadence.n=v)));
     if(t==='weeklyN') cadBox.append(field('Every how many weeks?', numInput(d.cadence.n||2, v=>d.cadence.n=v)));
     if(t==='weekdays'||t==='weeklyN') cadBox.append(labeled('On', dayChips(d.cadence.days||[], ds=>d.cadence.days=ds)));
@@ -1913,8 +1913,8 @@ function editRoutine(r){
   const kindBox=el('div',{});
   function drawKind(){
     kindBox.innerHTML='';
-    kindBox.append(labeled('Type', segmented([['check','Checkbox'],['counter','Counter'],['skill','Skill log']], kind, v=>{ kind=v; drawKind(); })));
-    if(kind==='skill') kindBox.append(el('div',{class:'faint tiny'},'Tapping it asks which skill you practiced and for how long, and logs it on the Skills tab.'));
+    kindBox.append(labeled('Track it as', segmented([['check','Checkbox'],['counter','Counter'],['skill','Skill log']], kind, v=>{ kind=v; drawKind(); })));
+    if(kind==='skill') kindBox.append(el('div',{class:'faint tiny'},'Tapping it asks which skill you practiced and for how long.'));
     if(kind==='counter') kindBox.append(el('div',{class:'grid2'},[
       field('Daily goal', numInput(d.goal||1, v=>d.goal=v)),
       field('oz each (optional)', numInput(d.oz||0, v=>d.oz=v)),
@@ -1922,26 +1922,38 @@ function editRoutine(r){
   }
   drawKind();
 
+  let moreOpen=!!(d.hint || d.lock || d.skipRest);
+  const moreBox=el('div',{style:'margin-top:6px'});
+  function drawMore(){
+    moreBox.innerHTML='';
+    moreBox.append(el('button',{class:'btn ghost sm', onclick:()=>{ if($('#r_hint'))d.hint=$('#r_hint').value; if($('#r_lock'))d.lock=$('#r_lock').value; if($('#r_skip'))d.skipRest=$('#r_skip').checked; moreOpen=!moreOpen; drawMore(); }},
+      `${moreOpen?'▾':'▸'} More options`));
+    if(moreOpen){
+      moreBox.append(field('Hint (optional)', `<input id="r_hint" value="${esc(d.hint||'')}" placeholder="before dinner">`));
+      moreBox.append(field('Not available until (optional)', `<input id="r_lock" type="time" value="${d.lock||''}">`));
+      moreBox.append(checkboxRow('r_skip','Skip on rest & off nights', d.skipRest));
+    }
+  }
+  drawMore();
+
   sheet(isNew?'New routine':'Edit routine', [
     field('Name', `<input id="r_name" value="${esc(d.name)}" placeholder="Stretch / Read / Call a friend">`),
-    field('Hint (optional)', `<input id="r_hint" value="${esc(d.hint||'')}" placeholder="before dinner">`),
-    labeled('Priority', segmented(PRIOS, prio, v=>prio=v)),
-    labeled('When', segmented([['morning','Morning'],['evening','Evening'],['winddown','Wind-down']], slot, v=>slot=v)),
-    cadBox,
-    field('Not available until (optional time)', `<input id="r_lock" type="time" value="${d.lock||''}">`),
-    checkboxRow('r_skip','Skip on rest & off nights', d.skipRest),
     kindBox,
+    labeled('When', segmented([['morning','Morning'],['evening','Evening'],['winddown','Wind-down']], slot, v=>slot=v)),
+    labeled('Priority', segmented(PRIOS, prio, v=>prio=v)),
+    cadBox,
+    moreBox,
   ], ()=>{
     d.name=$('#r_name').value.trim(); if(!d.name) return false;
-    d.hint=$('#r_hint').value.trim();
+    if($('#r_hint')) d.hint=$('#r_hint').value.trim();
+    if($('#r_lock')) d.lock=$('#r_lock').value;
+    if($('#r_skip')) d.skipRest=$('#r_skip').checked;
     d.priority=prio; d.slot=slot; d.kind=kind;
-    d.lock=$('#r_lock').value;
-    d.skipRest=$('#r_skip').checked;
     if(d.cadence.type!=='everyN'&&d.cadence.type!=='weeklyN') delete d.cadence.anchor; else d.cadence.anchor=d.cadence.anchor||todayISO();
     Object.assign(r, d);
     if(isNew) S.routines.push(r);
     save(); render(); return true;
-  }, isNew?null:()=>{ S.routines=S.routines.filter(x=>x!==r); save(); closeSheet(); render(); });
+  }, isNew?null:()=>withUndo(`Deleted “${r.name}”`, ()=>{ S.routines=S.routines.filter(x=>x!==r); save(); closeSheet(); render(); }), {centered:true});
 }
 
 /* ===== SKILLS ===== */
