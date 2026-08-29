@@ -1279,9 +1279,14 @@ function autoFocusCard(fp, iso, quiet){
   const mt=minsToday(p.id); if(mt) meta.append(el('span',{class:'badge'}, `${fmtDur(mt)} today`));
   if(meta.children.length) c.append(meta);
 
-  if(fp.feas && !fp.feas.ok) c.append(el('div',{class:'tiny', style:'margin-top:7px;color:var(--warn)'},
-    `${fp.feas.finish?`${fp.feas.partName?`“${fp.feas.partName}” `:''}running past its deadline — projected ${dstr(fp.feas.finish)}. Add a focus night or move the date.`:'won’t finish at this pace yet.'}`));
-  else c.append(el('div',{class:'muted tiny', style:'margin-top:7px'}, fp.status.txt));
+  if(fp.feas && !fp.feas.ok){
+    const w=el('div',{class:'tiny', style:'margin-top:7px;color:var(--warn)'});
+    w.append(document.createTextNode(fp.feas.finish
+      ? `${fp.feas.partName?`“${fp.feas.partName}” `:''}running past its deadline — projected ${dstr(fp.feas.finish)}. `
+      : 'won’t finish at this pace yet. '));
+    w.append(el('button',{class:'breakdown', style:'display:inline;color:var(--warn)', onclick:()=>fixLateProject(p)}, 'fix this →'));
+    c.append(w);
+  } else c.append(el('div',{class:'muted tiny', style:'margin-top:7px'}, fp.status.txt));
 
   // an imminent subtask deadline inside the current task
   if(hasSubs){
@@ -1461,7 +1466,7 @@ function projectCard(p, iso, isNext, canDrag){
   if(p.priority!=='medium') tags.append(el('span',{class:'badge'+(p.priority==='top'?' soon':'')}, pprioLabel(p.priority)));
   if(isFocus) tags.append(el('span',{class:'badge ok'},'focus'));
   else if(isNext) tags.append(el('span',{class:'badge ok'},'up next'));
-  if(feas && !feas.ok) tags.append(el('span',{class:'badge over'},'running late'));
+  if(feas && !feas.ok) tags.append(el('button',{class:'badge over', onclick:()=>fixLateProject(p)},'running late — fix'));
   if(tags.children.length) c.append(tags);
   if(p.notes) c.append(el('div',{class:'muted tiny', style:'margin-top:8px;white-space:pre-wrap'}, p.notes));
 
@@ -1499,6 +1504,44 @@ function projectCard(p, iso, isNext, canDrag){
   return c;
 }
 function bestStreak(){ return S.routines.reduce((m,r)=>Math.max(m, routineStreak(r)), 0); }
+// interactive "get this project back on track" — recomputes the projection after each change
+function fixLateProject(p){
+  const dlg=$('#sheet');
+  function draw(){
+    _simKey='';   // bust the projection cache
+    const feas=feasibility(p), dl=deadlineOf(p), tgt=feas&&feas.finish, late=feas&&!feas.ok;
+    dlg.innerHTML=''; dlg.className='centered'; dlg.style.display='';
+    const box=el('div',{class:'sheet'});
+    box.append(el('h2',{},'Back on track'));
+    box.append(el('div',{class:'muted tiny'}, p.name));
+    box.append(el('div',{class:'card', style:`margin:10px 0;border-color:${late?'var(--warn)':'var(--good)'}`},[
+      el('div',{style:`font-weight:700;color:${late?'var(--warn)':'var(--good)'}`},
+        late ? `${feas.late} day${feas.late===1?'':'s'} late` : 'On track ✓'),
+      el('div',{class:'faint tiny', style:'margin-top:3px'}, `deadline ${dl?dstr(dl):'none'} · projected ${tgt?dstr(tgt):'—'}`),
+    ]));
+    box.append(el('div',{class:'edlabel'},'Move the deadline'));
+    const di=el('input',{type:'date', value:dl||'', style:'width:auto'});
+    di.addEventListener('change',()=>{ const t=curr(p); if(t!==p && t.deadline) t.deadline=di.value; else p.deadline=di.value; save(); draw(); });
+    box.append(di);
+    const restDays=[1,2,3,4,5,6,0].filter(d=>S.week[d]==='rest'||S.week[d]==='off');
+    if(restDays.length){
+      box.append(el('div',{class:'edlabel'},'Turn a night into a work night'));
+      const chips=el('div',{class:'chips'});
+      restDays.forEach(d=> chips.append(el('button',{class:'chip', style:'padding:6px 11px;font-size:.82rem',
+        onclick:()=>{ S.week[d]='project'; save(); draw(); }}, WD[d])));
+      box.append(chips);
+    }
+    if(!(S.focus&&S.focus.id===p.id))
+      box.append(el('button',{class:'btn sm block', style:'margin-top:13px', onclick:()=>{ closeSheet(); chooseFocus(p); }},'🎯 Focus on this project'));
+    else if(S.focus.restPerWeek>0)
+      box.append(el('button',{class:'btn sm block', style:'margin-top:13px', onclick:()=>{ S.focus.restPerWeek--; save(); draw(); }}, `Give up a rest night (keep ${S.focus.restPerWeek})`));
+    box.append(el('button',{class:'btn ghost block', style:'margin-top:14px', onclick:()=>{ closeSheet(); render(); }},'Done'));
+    dlg.append(box);
+    if(typeof dlg.showModal==='function'){ if(!dlg.open) dlg.showModal(); }
+    else { dlg.setAttribute('open',''); dlg.style.cssText='display:block;position:fixed;inset:0;z-index:100'; }
+  }
+  draw();
+}
 // consecutive days with a logged focus session — rest/off nights don't break it, today gets grace
 function focusStreak(){
   let n=0;
@@ -1792,7 +1835,7 @@ function viewProject(app){
   if(p.type) chips.append(el('span',{class:'badge'}, p.type));
   if(p.priority!=='medium') chips.append(el('span',{class:'badge'+(p.priority==='top'?' soon':'')}, pprioLabel(p.priority)));
   const dl=deadlineTag(deadlineOf(p), deadlineTimeOf(p)); if(dl) chips.append(dl);
-  if(feas && !feas.ok) chips.append(el('span',{class:'badge over'},'running late'));
+  if(feas && !feas.ok) chips.append(el('button',{class:'badge over', onclick:()=>fixLateProject(p)},'running late — fix'));
   chips.append(el('button',{class:'mini', onclick:()=>editProjectDetails(p)},'✎ details'));
   app.append(chips);
 
@@ -2004,10 +2047,12 @@ function viewPlan(app){
         fl.style.left=Math.min(99,Math.max(1,L.flag))+'%';
         track.append(fl);
       }
-      lw.append(el('div',{class:'lane'},[ el('div',{class:'ln'}, L.p.name), track ]));
+      const lane=el('div',{class:'lane'+(L.late?' late':'')},[ el('div',{class:'ln'}, L.p.name), track ]);
+      if(L.late){ lane.style.cursor='pointer'; lane.addEventListener('click',()=>fixLateProject(L.p)); }
+      lw.append(lane);
     });
     lw.append(el('div',{class:'scale'},[ el('span',{},'today'), el('span',{}, dstr(addDays(todayISO(), planSpan()))) ]));
-    hl.append(el('div',{class:'faint tiny', style:'margin-top:14px'},'Where each project lands · flag = deadline'));
+    hl.append(el('div',{class:'faint tiny', style:'margin-top:14px'},'Where each project lands · flag = deadline · tap a late one to fix'));
     hl.append(lw);
   }
   app.append(hl);
