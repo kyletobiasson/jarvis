@@ -334,7 +334,7 @@ const KEY='pa.v1';
 // Ships blank. Everything is created on-device via the setup flow and stored in
 // localStorage — nothing personal lives in this file or the repo.
 const DEFAULTS={
-  user:'there', assistant:'Jarvis', craft:'other', sound:false,
+  user:'there', assistant:'Jarvis', craft:'other', sound:false, remind:{winddown:false},
   workStart:'08:00', driveMin:15, morningMin:30,
   wakeOverride:'', sleepGoalH:8, workEnd:'17:00',
   week:{0:'project',1:'project',2:'rest',3:'project',4:'rest',5:'off',6:'project'},
@@ -355,6 +355,7 @@ function migrate(s){
   s.counters = s.counters || {};
   s.craft = s.craft || 'other';
   s.sound = !!s.sound;
+  s.remind = Object.assign({winddown:false}, s.remind||{});
   s.sessions = s.sessions || [];
   s.starts = s.starts || [];
   if(s.activeSession && (!s.activeSession.projectId || !s.activeSession.startedAt)) s.activeSession=null;
@@ -874,6 +875,13 @@ function viewToday(app){
     });
     app.append(rb);
     if(allClear && justTapId) app.append(el('div',{class:'muted tiny', style:'text-align:center;margin-top:4px'}, 'Day cleared — go rest.'));
+    if(nowMin>=wdM && !allClear && !dayChecks(iso).__wdDismiss){
+      const nudge=el('div',{class:'row note', style:'border-color:var(--accent);color:var(--text);display:block'});
+      nudge.append(el('div',{style:'font-weight:650'}, '\u{1f319}  Wind-down time'));
+      nudge.append(el('div',{class:'muted tiny', style:'margin-top:2px'}, `Start wrapping up — shower, then in bed by ${fmtHM(asleepMin())}.`));
+      nudge.append(el('button',{class:'btn ghost sm', style:'margin-top:9px', onclick:()=>{ dayChecks(iso).__wdDismiss=true; save(); render(); }},'Got it'));
+      app.append(nudge);
+    }
   } else {
     app.append(el('div',{class:'mo', style:'margin-top:6px'},[
       pill(`Wake by <b>${fmtHM(wakeMin())}</b>`), pill(`Leave by <b>${fmtHM(leaveMin())}</b>`)
@@ -1717,6 +1725,20 @@ function viewSettings(app){
   snd.append(el('div',{class:'faint tiny', style:'margin-top:2px'},'Off by default. Plays only when a part or project wraps, a day clears, or you level up.'));
   app.append(snd);
 
+  const rc=el('div',{class:'card'});
+  rc.append(el('h3',{},'Wind-down reminder'));
+  rc.append(el('div',{class:'faint tiny', style:'margin:4px 0 8px'}, `A nudge around ${fmtHM(windDownMin())} to start wrapping up. The in-app nudge always shows when you open Jarvis after that time.`));
+  const canNote = typeof Notification!=='undefined';
+  rc.append(checkboxRow('s_wdnote','Also send a phone notification', S.remind.winddown && canNote && Notification.permission==='granted'));
+  rc.append(el('div',{class:'faint tiny', style:'margin-top:2px'},'On iPhone: add Jarvis to your Home Screen and open it from there first — iOS only allows notifications in the installed app, and only while it’s open or freshly backgrounded.'));
+  if(canNote && Notification.permission==='denied')
+    rc.append(el('div',{class:'tiny', style:'color:var(--warn);margin-top:4px'},'Notifications are blocked for this site — turn them back on in your browser/site settings.'));
+  if(!canNote)
+    rc.append(el('div',{class:'tiny', style:'color:var(--warn);margin-top:4px'},'This browser doesn’t support web notifications.'));
+  rc.append(el('button',{class:'btn sm block', style:'margin-top:12px', onclick:downloadWindDownICS}, '📅  Add a nightly alarm to your calendar'));
+  rc.append(el('div',{class:'faint tiny', style:'margin-top:6px'},'The reliable option — downloads a repeating alarm your phone’s Calendar fires natively every night. Add it once.'));
+  app.append(rc);
+
   const sl=el('div',{class:'card'});
   sl.append(el('h3',{},'Sleep & schedule'));
   sl.append(el('div',{class:'grid2'},[
@@ -1746,6 +1768,18 @@ function viewSettings(app){
   bind('s_drive',v=>S.driveMin=+v||0); bind('s_morn',v=>S.morningMin=+v||0);
   bind('s_sleep',v=>S.sleepGoalH=+v||8); bind('s_wake',v=>S.wakeOverride=v);
   const sco=$('#s_sound'); if(sco) sco.addEventListener('change',()=>{ S.sound=sco.checked; save(); if(S.sound) chime(); });
+  const wno=$('#s_wdnote');
+  if(wno) wno.addEventListener('change', async ()=>{
+    if(wno.checked){
+      if(typeof Notification==='undefined'){ wno.checked=false; return; }
+      let perm=Notification.permission;
+      if(perm==='default'){ try{ perm=await Notification.requestPermission(); }catch(e){ perm='denied'; } }
+      if(perm!=='granted'){ wno.checked=false; S.remind.winddown=false; save(); render(); return; }
+      S.remind.winddown=true; save(); armWindDownReminder();
+      try{ (await navigator.serviceWorker.ready).showNotification(`${S.assistant}`, {body:'Wind-down reminders are on.', tag:'winddown'}); }catch(e){}
+    } else { S.remind.winddown=false; save(); armWindDownReminder(); }
+    render();
+  });
   refreshCalc();
   function refreshCalc(){ const c=$('#s_calc'); if(c) c.textContent=`→ Wake ${fmtHM(wakeMin())} · leave ${fmtHM(leaveMin())} · wind-down ${fmtHM(windDownMin())} · lights out ${fmtHM(asleepMin())}`; }
 }
@@ -2017,11 +2051,62 @@ function onboard(){
 }
 function fmt24(m){ m=((m%1440)+1440)%1440; return String(Math.floor(m/60)).padStart(2,'0')+':'+String(m%60).padStart(2,'0'); }
 
+/* ---------- wind-down reminder ----------
+   iOS has no way to schedule a local notification and no push without a server,
+   so this is best-effort: a timer that fires showNotification() while the app is
+   alive (reliable on desktop/Android, hit-or-miss on a backgrounded iOS PWA),
+   backed by an on-open catch-up nudge and a downloadable repeating .ics alarm
+   that iOS Calendar fires natively. */
+let _wdTimer=null;
+function notifyOK(){ return typeof Notification!=='undefined' && Notification.permission==='granted'; }
+function armWindDownReminder(){
+  clearTimeout(_wdTimer); _wdTimer=null;
+  if(!S.remind || !S.remind.winddown || !notifyOK()) return;
+  const now=new Date(), nowMin=now.getHours()*60+now.getMinutes()+now.getSeconds()/60;
+  const target=((windDownMin()%1440)+1440)%1440;
+  let delay=(target-nowMin)*60000;
+  if(delay < -30*60000) return;        // >30 min past — let it go tonight
+  if(delay > 8*3600000) return;        // too far out — re-armed when the app is next opened
+  _wdTimer=setTimeout(fireWindDownReminder, Math.max(500, delay));
+}
+function fireWindDownReminder(){
+  const iso=todayISO();
+  if(!S.remind.winddown || !notifyOK() || dayChecks(iso).__wdNotified) return;
+  dayChecks(iso).__wdNotified=true; save();
+  const title=`${S.assistant} — wind-down`;
+  const body=`Start wrapping up. Shower, phone across the room, in bed by ${fmtHM(asleepMin())}.`;
+  try{
+    if(navigator.serviceWorker && navigator.serviceWorker.ready)
+      navigator.serviceWorker.ready
+        .then(reg=>reg.showNotification(title, {body, tag:'winddown', icon:'icon-192.png', badge:'icon-192.png'}))
+        .catch(()=>{ try{ new Notification(title,{body}); }catch(e){} });
+    else new Notification(title, {body});
+  }catch(e){}
+}
+function downloadWindDownICS(){
+  const m=((windDownMin()%1440)+1440)%1440, e=(m+15)%1440;
+  const p2=n=>String(n).padStart(2,'0');
+  const hm=x=>p2(Math.floor(x/60))+p2(x%60)+'00';
+  const d=new Date(), dt=`${d.getFullYear()}${p2(d.getMonth()+1)}${p2(d.getDate())}`;
+  const stamp=new Date().toISOString().replace(/[-:]/g,'').replace(/\.\d+/,'');
+  const ics=[
+    'BEGIN:VCALENDAR','VERSION:2.0','PRODID:-//Jarvis//Wind-down//EN','CALSCALE:GREGORIAN','METHOD:PUBLISH',
+    'BEGIN:VEVENT',`UID:jarvis-winddown-${Date.now()}@jarvis.local`,`DTSTAMP:${stamp}`,
+    `DTSTART:${dt}T${hm(m)}`,`DTEND:${dt}T${hm(e)}`,'RRULE:FREQ=DAILY',
+    'SUMMARY:Wind-down — start wrapping up',
+    `DESCRIPTION:Shower\\, phone across the room\\, in bed by ${fmtHM(asleepMin())}.`,
+    'BEGIN:VALARM','ACTION:DISPLAY','DESCRIPTION:Wind-down','TRIGGER:PT0S','END:VALARM',
+    'END:VEVENT','END:VCALENDAR'
+  ].join('\r\n');
+  const a=el('a',{href:URL.createObjectURL(new Blob([ics],{type:'text/calendar'})), download:'jarvis-winddown.ics'});
+  document.body.append(a); a.click(); a.remove();
+}
+
 /* ---------- boot ---------- */
 let lastDay=todayISO();
-setInterval(()=>{ const t=todayISO(); if(t!==lastDay){ lastDay=t; render(); } }, 60000);
-document.addEventListener('visibilitychange',()=>{ if(!document.hidden){ render(); ensureTick(); } });
-buildNav(); render(); onboard(); ensureTick();
+setInterval(()=>{ const t=todayISO(); if(t!==lastDay){ lastDay=t; render(); armWindDownReminder(); } }, 60000);
+document.addEventListener('visibilitychange',()=>{ if(!document.hidden){ render(); ensureTick(); armWindDownReminder(); } });
+buildNav(); render(); onboard(); ensureTick(); armWindDownReminder();
 if('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(()=>{});
 </script>
 </body>
