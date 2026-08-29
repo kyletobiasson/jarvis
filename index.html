@@ -373,7 +373,7 @@ const KEY='pa.v1';
 // Ships blank. Everything is created on-device via the setup flow and stored in
 // localStorage — nothing personal lives in this file or the repo.
 const DEFAULTS={
-  user:'there', assistant:'Jarvis', craft:'other', sound:false, remind:{winddown:false}, planNudge:'',
+  user:'there', assistant:'Jarvis', craft:'other', sound:false, remind:{winddown:false}, planNudge:'', lastBackup:'',
   workStart:'08:00', driveMin:15, morningMin:30,
   wakeOverride:'', sleepGoalH:8, workEnd:'17:00',
   week:{0:'project',1:'project',2:'rest',3:'project',4:'rest',5:'off',6:'project'},
@@ -396,6 +396,7 @@ function migrate(s){
   s.sound = !!s.sound;
   s.remind = Object.assign({winddown:false}, s.remind||{});
   s.planNudge = s.planNudge || '';
+  s.lastBackup = s.lastBackup || '';
   s.sessions = (s.sessions || []).map(x=>Object.assign({id:uid()}, x));
   s.starts = s.starts || [];
   if(s.activeSession){
@@ -2128,6 +2129,17 @@ function viewYou(app){
   fc.append(el('button',{class:'btn ghost sm block', style:'margin-top:10px', onclick:()=>go('history')}, 'Full history →'));
   app.append(fc);
 
+  const bAge = S.lastBackup ? daysBetween(S.lastBackup, todayISO()) : Infinity;
+  if((bAge>21 || !S.lastBackup) && (S.projects.length || S.routines.length)){
+    const bk=el('div',{class:'card', style:'border-color:var(--warn)'});
+    bk.append(el('div',{class:'inline', style:'gap:7px'},[ el('span',{},'⚠'),
+      el('div',{style:'font-weight:650;color:var(--warn)'}, S.lastBackup?'Backup is out of date':'No backup yet') ]));
+    bk.append(el('div',{class:'muted tiny', style:'margin:5px 0 9px'},
+      S.lastBackup ? `Last backed up ${backupAgeLabel()}. Your work lives only on this device.` : 'Everything is stored on this device only — clear the browser and it’s gone.'));
+    bk.append(el('button',{class:'btn primary sm', onclick:exportData},'Export backup'));
+    app.append(bk);
+  }
+
   app.append(el('button',{class:'btn block', style:'margin-top:14px', onclick:()=>go('settings')}, '⚙  Settings'));
 }
 
@@ -2180,12 +2192,15 @@ function viewSettings(app){
 
   const dm=el('div',{class:'card'});
   dm.append(el('h3',{},'Data'));
+  const bage = S.lastBackup ? daysBetween(S.lastBackup, todayISO()) : Infinity;
+  dm.append(el('div',{class:'tiny', style:`margin:6px 0 8px;color:${(bage>21)?'var(--warn)':'var(--muted)'}`},
+    S.lastBackup ? `Last backup: ${backupAgeLabel()}` : 'Never backed up — everything is on this device only.'));
   dm.append(el('div',{class:'row-actions'},[
     el('button',{class:'btn sm', onclick:exportData},'Export backup'),
     el('button',{class:'btn sm', onclick:importData},'Import'),
     armDelete('Reset all', ()=>{ localStorage.removeItem(KEY); S=load(); buildNav(); render(); onboard(); }),
   ]));
-  dm.append(el('div',{class:'faint tiny', style:'margin-top:8px'},'Stored only on this device. Routines and their cadence live in the Routines tab.'));
+  dm.append(el('div',{class:'faint tiny', style:'margin-top:8px'},'Import offers Merge (keep what’s here, add what’s missing) or Replace. Routines and their cadence live in the Routines tab.'));
   app.append(dm);
 
   const bind=(id,fn)=>{ const e=$('#'+id); if(e) e.addEventListener('change',()=>{ fn(e.value); save(); refreshCalc(); render(); }); };
@@ -2437,13 +2452,58 @@ function exportData(){
   const blob=new Blob([JSON.stringify(S,null,2)],{type:'application/json'});
   const a=el('a',{href:URL.createObjectURL(blob), download:`jarvis-backup-${todayISO()}.json`});
   document.body.append(a); a.click(); a.remove();
+  S.lastBackup=todayISO(); save();
+}
+function mergeById(local, incoming){
+  const have=new Set((local||[]).map(x=>x&&x.id));
+  (incoming||[]).forEach(x=>{ if(x && x.id && !have.has(x.id)) local.push(x); });
+}
+function applyImport(raw, mode){
+  const inc=Object.assign(structuredClone(DEFAULTS), raw); migrate(inc);
+  if(mode==='replace'){ S=inc; save(); buildNav(); render(); return; }
+  mergeById(S.projects, inc.projects);
+  mergeById(S.routines, inc.routines);
+  mergeById(S.tasks, inc.tasks);
+  mergeById(S.events, inc.events);
+  const skMap=new Map(S.skills.map(k=>[k.id,k]));
+  inc.skills.forEach(k=>{ const cur=skMap.get(k.id);
+    if(!cur) S.skills.push(k); else mergeById(cur.sessions=cur.sessions||[], k.sessions); });
+  mergeById(S.sessions, inc.sessions);
+  const stTs=new Set((S.starts||(S.starts=[])).map(x=>x.ts));
+  (inc.starts||[]).forEach(x=>{ if(!stTs.has(x.ts)) S.starts.push(x); });
+  const xpTs=new Set((S.xpLog||[]).map(e=>e.ts));
+  (inc.xpLog||[]).forEach(e=>{ if(!xpTs.has(e.ts)) S.xpLog.push(e); });
+  S.xpLog.sort((a,b)=>b.ts-a.ts); if(S.xpLog.length>250) S.xpLog.length=250;
+  for(const d in inc.checks) S.checks[d]=Object.assign({}, inc.checks[d], S.checks[d]);
+  for(const id in inc.counters){ S.counters[id]=S.counters[id]||{};
+    for(const d in inc.counters[id]) if(S.counters[id][d]==null) S.counters[id][d]=inc.counters[id][d]; }
+  S.xp=Math.max(S.xp, inc.xp||0);
+  save(); render();
 }
 function importData(){
   const inp=el('input',{type:'file', accept:'.json,application/json'});
   inp.addEventListener('change',()=>{ const f=inp.files[0]; if(!f) return; const rd=new FileReader();
-    rd.onload=()=>{ try{ S=Object.assign(structuredClone(DEFAULTS), JSON.parse(rd.result)); migrate(S); save(); render(); alert('Imported.'); }catch(e){ alert('Bad file.'); } };
+    rd.onload=()=>{ let raw; try{ raw=JSON.parse(rd.result); }catch(e){ alert('That doesn’t look like a Jarvis backup.'); return; }
+      const dlg=$('#sheet'); dlg.innerHTML=''; dlg.className='centered'; dlg.style.display='';
+      const box=el('div',{class:'sheet'});
+      box.append(el('h2',{},'Import backup'));
+      box.append(el('p',{class:'muted tiny', style:'margin:4px 0'}, `${(raw.projects||[]).length} projects · ${(raw.routines||[]).length} routines · ${(raw.skills||[]).length} skills in this file.`));
+      box.append(el('p',{class:'muted tiny', style:'margin:6px 0 0'}, 'Merge keeps what’s on this device and adds anything missing. Replace wipes this device and loads the file as-is.'));
+      const acts=el('div',{class:'row-actions', style:'margin-top:16px'});
+      acts.append(el('button',{class:'btn primary', onclick:()=>{ applyImport(raw,'merge'); closeSheet(); }},'Merge'));
+      acts.append(el('button',{class:'btn ghost', onclick:closeSheet},'Cancel'));
+      const rb=armDelete('Replace', ()=>{ applyImport(raw,'replace'); closeSheet(); }); rb.style.marginLeft='auto'; acts.append(rb);
+      box.append(acts); dlg.append(box);
+      if(typeof dlg.showModal==='function'){ if(!dlg.open) dlg.showModal(); }
+      else { dlg.setAttribute('open',''); dlg.style.cssText='display:block;position:fixed;inset:0;z-index:100'; }
+    };
     rd.readAsText(f); });
   inp.click();
+}
+function backupAgeLabel(){
+  if(!S.lastBackup) return null;
+  const n=daysBetween(S.lastBackup, todayISO());
+  return n<=0 ? 'today' : n===1 ? 'yesterday' : `${n} days ago`;
 }
 
 /* ---------- onboarding wizard ---------- */
