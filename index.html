@@ -1009,7 +1009,7 @@ function viewToday(app){
   if(evsAll.length){
     const ec=el('div',{class:'card', style:'border-color:var(--accent)'});
     ec.append(el('div',{class:'faint tiny', style:'margin-bottom:6px'}, out?'You’re out tonight':'On your calendar today'));
-    evsAll.forEach(e=> ec.append(el('div',{style:'font-weight:600;margin:2px 0'}, (e.time?fmtHM(parseHM(e.time))+'  ':'')+e.title)));
+    evsAll.forEach(e=> ec.append(el('div',{style:'font-weight:600;margin:2px 0;cursor:pointer', onclick:()=>addEvent(e)}, (e.time?fmtHM(parseHM(e.time))+'  ':'')+e.title)));
     if(out) ec.append(el('div',{class:'muted tiny', style:'margin-top:6px'},'Focus block is off tonight — just hit the must-do routines when you’re back, and protect the bedtime.'));
     app.append(ec);
   }
@@ -2127,7 +2127,8 @@ function viewPlan(app){
   cm.append(el('div',{class:'faint tiny', style:'margin:6px 0 10px'},'An evening one cancels that night’s focus block.'));
   S.events.slice().sort((a,b)=>(a.date+a.time).localeCompare(b.date+b.time)).forEach(e=>{
     cm.append(el('div',{class:'weekrow'},[
-      el('div',{},[ el('div',{}, e.title), el('div',{class:'faint tiny'}, dstr(e.date)+(e.time?' · '+fmtHM(parseHM(e.time)):'')) ]),
+      el('div',{class:'tap', style:'cursor:pointer;flex:1', onclick:()=>addEvent(e)},[
+        el('div',{}, e.title), el('div',{class:'faint tiny'}, dstr(e.date)+(e.time?' · '+fmtHM(parseHM(e.time)):'')) ]),
       el('button',{class:'del', onclick:()=>{ S.events=S.events.filter(x=>x!==e); save(); render(); }},'Remove'),
     ]));
   });
@@ -2160,13 +2161,19 @@ function weekRow(i,modes){
   r.append(sel);
   return r;
 }
-function addEvent(){
-  const e={id:uid(), date:todayISO(), time:'', title:''};
-  sheet('Add commitment',[
-    field('What', `<input id="e_t" placeholder="Dinner with friends">`),
-    field('Day', `<input id="e_d" type="date" value="${todayISO()}">`),
-    field('Time (optional)', `<input id="e_tm" type="time">`),
-  ], ()=>{ e.title=$('#e_t').value.trim(); if(!e.title) return false; e.date=$('#e_d').value||todayISO(); e.time=$('#e_tm').value; S.events.push(e); save(); render(); return true; });
+function addEvent(ev){
+  const isNew=!ev;
+  const e=ev||{id:uid(), date:todayISO(), time:'', title:''};
+  sheet(isNew?'Add commitment':'Edit commitment',[
+    field('What', `<input id="e_t" value="${esc(e.title||'')}" placeholder="Dinner with friends">`),
+    field('Day', `<input id="e_d" type="date" value="${e.date||todayISO()}">`),
+    field('Time (optional)', `<input id="e_tm" type="time" value="${e.time||''}">`),
+  ], ()=>{
+    const title=$('#e_t').value.trim(); if(!title) return false;
+    e.title=title; e.date=$('#e_d').value||todayISO(); e.time=$('#e_tm').value;
+    if(isNew) S.events.push(e);
+    save(); render(); return true;
+  }, isNew?null:()=>{ S.events=S.events.filter(x=>x!==e); save(); closeSheet(); render(); });
 }
 function editTask(t){
   const isNew=!t; t=t||{id:uid(), text:'', due:'', priority:'normal', done:false};
